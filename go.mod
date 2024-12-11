@@ -1,6 +1,8 @@
 module github.com/secinto/interactsh
 
-go 1.23
+go 1.22
+
+toolchain go1.23.3
 
 replace checkfix_utils => ../checkfix_utils
 
