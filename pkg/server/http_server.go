@@ -120,7 +120,7 @@ func (h *HTTPServer) logger(handler http.Handler) http.HandlerFunc {
 		req, _ := httputil.DumpRequest(r, true)
 		reqString := string(req)
 
-		log.Debugf("New HTTP request: \n\n%s\n", reqString)
+		log.Debugf("New HTTP request from %s: \n\n%s\n", r.RemoteAddr, reqString)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, r)
 

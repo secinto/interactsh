@@ -251,7 +251,7 @@ func (h *DNSServer) handleInteraction(domain string, w dns.ResponseWriter, r *dn
 	requestMsg := r.String()
 	responseMsg := m.String()
 
-	log.Debugf("New DNS request: %s\n", requestMsg)
+	log.Debugf("New DNS request from %s: %s\n", w.RemoteAddr(), requestMsg)
 
 	var foundDomain string
 	for _, configuredDomain := range h.options.Domains {

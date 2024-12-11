@@ -127,8 +127,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	logging.ReadViperConfig()
-
 	if !cliOptions.DisableUpdateCheck {
 		latestVersion, err := updateutils.GetToolVersionCallback("interactsh-server", options.Version)()
 		if err != nil {
