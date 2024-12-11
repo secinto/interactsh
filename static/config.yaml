@@ -1,7 +1,0 @@
----
-server:
-  logLevel: debug
-elasticsearch:
-  apiKey: UXBGemdJNEJwbm04cDNRVHN1c0Q6dWJqNUVCNl9RZzJiRUpBTEdnQUk2dw==
-  username: skraxberger
-  password: 9iPK33T7mtgEj9f
