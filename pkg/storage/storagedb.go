@@ -8,8 +8,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"github.com/projectdiscovery/gologger"
 	"github.com/secinto/interactsh/pkg/communication"
+	"github.com/secinto/interactsh/pkg/logging"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +24,10 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"go.uber.org/multierr"
+)
+
+var (
+	log = logging.NewLogger()
 )
 
 // Storage is an storage for interactsh interaction data as well
@@ -69,6 +73,8 @@ func New(options *Options) (*StorageDB, error) {
 		storageDB.db = levDb
 	}
 
+	storageDB.persistentStore = make(map[string][]*PersistentEntry)
+
 	return storageDB, nil
 }
 
@@ -108,7 +114,7 @@ func (s *StorageDB) SetIDPublicKey(correlationID, secretKey, publicKey string, d
 		//This should not happen, however, so we log the occurrence.
 		if pValue[len(pValue)-1].deregisteredAt.IsZero() {
 			pValue[len(pValue)-1].deregisteredAt = time.Now()
-			gologger.Warning().Msgf("Deregister Time added to %s when overwritten!", correlationID)
+			log.Debugf("Deregister Time added to %s when overwritten!", correlationID)
 		}
 	}
 
@@ -367,7 +373,7 @@ func (s *StorageDB) SetDescription(correlationID string, description string) err
 		return errors.New("could not get correlation-id from cache when trying to set Description")
 	}
 	if item[len(item)-1].Description != "" {
-		gologger.Verbose().Msgf("Description set for ID that already had an associated description")
+		log.Debugf("Description set for ID that already had an associated description")
 	}
 	item[len(item)-1].Description = description
 	return nil

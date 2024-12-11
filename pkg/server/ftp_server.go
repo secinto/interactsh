@@ -12,7 +12,6 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/projectdiscovery/gologger"
 	ftpserver "goftp.io/server/v2"
 	"goftp.io/server/v2/driver/file"
 )
@@ -101,14 +100,14 @@ func (h *FTPServer) ListenAndServe(tlsConfig *tls.Config, ftpAlive chan bool, ft
 		}
 		ftpsAlive <- true
 		if err := h.ftpsServer.ListenAndServe(); err != nil {
-			gologger.Error().Msgf("Could not serve ftp on tls: %s\n", err)
+			log.Errorf("Could not serve ftp on tls: %s\n", err)
 			ftpsAlive <- false
 		}
 	}()
 
 	ftpAlive <- true
 	if err := h.ftpServer.ListenAndServe(); err != nil {
-		gologger.Error().Msgf("Could not serve ftp on port 21: %s\n", err)
+		log.Errorf("Could not serve ftp on port 21: %s\n", err)
 		ftpAlive <- false
 	}
 }
@@ -134,11 +133,11 @@ func (h *FTPServer) recordInteraction(remoteAddress, data string) {
 	}
 	buffer := &bytes.Buffer{}
 	if err := jsoniter.NewEncoder(buffer).Encode(interaction); err != nil {
-		gologger.Warning().Msgf("Could not encode ftp interaction: %s\n", err)
+		log.Debugf("Could not encode ftp interaction: %s\n", err)
 	} else {
-		gologger.Debug().Msgf("FTP Interaction: \n%s\n", buffer.String())
+		log.Debugf("FTP Interaction: \n%s\n", buffer.String())
 		if err := h.options.Storage.AddInteractionWithId(h.options.Token, buffer.Bytes()); err != nil {
-			gologger.Warning().Msgf("Could not store ftp interaction: %s\n", err)
+			log.Debugf("Could not store ftp interaction: %s\n", err)
 		}
 	}
 }

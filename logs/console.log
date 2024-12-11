@@ -1,0 +1,43 @@
+{"level":"info","msg":"\n    _       __                       __       __  \n   (_)___  / /____  _________ ______/ /______/ /_ \n  / / __ \\/ __/ _ \\/ ___/ __ '/ ___/ __/ ___/ __ \\\n / / / / / /_/  __/ /  / /_/ / /__/ /_(__  ) / / /\n/_/_/ /_/\\__/\\___/_/   \\__,_/\\___/\\__/____/_/ /_/\n\n","time":"2024-12-11 15:38:52"}
+{"level":"info","msg":"\t\tprojectdiscovery.io\n\n","time":"2024-12-11 15:38:58"}
+{"level":"info","msg":"Requesting SSL Certificate for:  [*.s2s.si, s2s.si]","time":"2024-12-11 15:39:03"}
+{"level":"error","msg":"An error occurred while applying for a certificate, error: [*.s2s.si] Obtain: [*.s2s.si] solving challenges: waiting for solver certmagic.solverWrapper to be ready: checking DNS propagation of \"_acme-challenge.s2s.si\": EOF (order=https://acme-v02.api.letsencrypt.org/acme/order/2107220507/332208278627) (ca=https://acme-v02.api.letsencrypt.org/directory)","time":"2024-12-11 15:39:37"}
+{"level":"error","msg":"Could not generate certs for auto TLS, https will be disabled","time":"2024-12-11 15:39:37"}
+{"level":"error","msg":"An error occurred while preparing tls configuration, error: no certificates provided","time":"2024-12-11 15:39:37"}
+{"level":"info","msg":"Listening with the following services:\n","time":"2024-12-11 15:39:37"}
+{"level":"debug","msg":"[DNS] Listening on UDP 0.0.0.0:53","time":"2024-12-11 15:39:37"}
+{"level":"debug","msg":"[LDAP] Listening on TCP 0.0.0.0:389","time":"2024-12-11 15:39:37"}
+{"level":"debug","msg":"[HTTP] Listening on TCP 0.0.0.0:80","time":"2024-12-11 15:39:37"}
+{"level":"debug","msg":"[DNS] Listening on TCP 0.0.0.0:53","time":"2024-12-11 15:39:37"}
+{"level":"debug","msg":"[SMTP] Listening on TCP 0.0.0.0:25","time":"2024-12-11 15:39:37"}
+{"level":"debug","msg":"New HTTP request: \n\nGET / HTTP/1.1\r\nHost: localhost\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\nAccept-Encoding: gzip, deflate, br\r\nAccept-Language: de-DE,de;q=0.9\r\nSec-Ch-Ua: \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"\r\nSec-Ch-Ua-Mobile: ?0\r\nSec-Ch-Ua-Platform: \"Windows\"\r\nSec-Fetch-Dest: document\r\nSec-Fetch-Mode: navigate\r\nSec-Fetch-Site: none\r\nSec-Fetch-User: ?1\r\nUpgrade-Insecure-Requests: 1\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.86 Safari/537.36\r\n\r\n\n","time":"2024-12-11 15:40:02"}
+{"level":"debug","msg":"New HTTP request: \n\nGET /favicon.ico HTTP/1.1\r\nHost: localhost\r\nAccept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8\r\nAccept-Encoding: gzip, deflate, br\r\nAccept-Language: de-DE,de;q=0.9\r\nReferer: http://localhost/\r\nSec-Ch-Ua: \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"\r\nSec-Ch-Ua-Mobile: ?0\r\nSec-Ch-Ua-Platform: \"Windows\"\r\nSec-Fetch-Dest: image\r\nSec-Fetch-Mode: no-cors\r\nSec-Fetch-Site: same-origin\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.86 Safari/537.36\r\n\r\n\n","time":"2024-12-11 15:40:03"}
+{"level":"debug","msg":"New HTTP request: \n\nGET /favicon.ico HTTP/1.1\r\nHost: localhost\r\nAccept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8\r\nAccept-Encoding: gzip, deflate, br\r\nAccept-Language: de-DE,de;q=0.9\r\nReferer: http://localhost/displaySessions\r\nSec-Ch-Ua: \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"\r\nSec-Ch-Ua-Mobile: ?0\r\nSec-Ch-Ua-Platform: \"Windows\"\r\nSec-Fetch-Dest: image\r\nSec-Fetch-Mode: no-cors\r\nSec-Fetch-Site: same-origin\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.86 Safari/537.36\r\n\r\n\n","time":"2024-12-11 15:40:06"}
+{"level":"info","msg":"\n    _       __                       __       __  \n   (_)___  / /____  _________ ______/ /______/ /_ \n  / / __ \\/ __/ _ \\/ ___/ __ '/ ___/ __/ ___/ __ \\\n / / / / / /_/  __/ /  / /_/ / /__/ /_(__  ) / / /\n/_/_/ /_/\\__/\\___/_/   \\__,_/\\___/\\__/____/_/ /_/\n\n","time":"2024-12-11 15:41:19"}
+{"level":"info","msg":"\t\tprojectdiscovery.io\n\n","time":"2024-12-11 15:41:19"}
+{"level":"info","msg":"Current interactsh version 1.2.2 (\u001b[92mlatest\u001b[0m)","time":"2024-12-11 15:41:19"}
+{"level":"info","msg":"Requesting SSL Certificate for:  [*.s2s.si, s2s.si]","time":"2024-12-11 15:41:19"}
+{"level":"info","msg":"\n    _       __                       __       __  \n   (_)___  / /____  _________ ______/ /______/ /_ \n  / / __ \\/ __/ _ \\/ ___/ __ '/ ___/ __/ ___/ __ \\\n / / / / / /_/  __/ /  / /_/ / /__/ /_(__  ) / / /\n/_/_/ /_/\\__/\\___/_/   \\__,_/\\___/\\__/____/_/ /_/\n\n","time":"2024-12-11 15:42:09"}
+{"level":"info","msg":"\t\tprojectdiscovery.io\n\n","time":"2024-12-11 15:42:15"}
+{"level":"info","msg":"Current interactsh version 1.2.2 (\u001b[92mlatest\u001b[0m)","time":"2024-12-11 15:42:16"}
+{"level":"info","msg":"Requesting SSL Certificate for:  [*.s2s.si, s2s.si]","time":"2024-12-11 15:42:16"}
+{"level":"error","msg":"An error occurred while applying for a certificate, error: [*.s2s.si] Obtain: [*.s2s.si] solving challenges: presenting for challenge: could not determine zone for domain \"_acme-challenge.s2s.si\": unexpected response code 'SERVFAIL' for _acme-challenge.s2s.si. (order=https://acme-v02.api.letsencrypt.org/acme/order/2107220507/332208991657) (ca=https://acme-v02.api.letsencrypt.org/directory)","time":"2024-12-11 15:42:29"}
+{"level":"error","msg":"Could not generate certs for auto TLS, https will be disabled","time":"2024-12-11 15:42:29"}
+{"level":"error","msg":"An error occurred while preparing tls configuration, error: no certificates provided","time":"2024-12-11 15:42:29"}
+{"level":"info","msg":"Listening with the following services:\n","time":"2024-12-11 15:42:29"}
+{"level":"debug","msg":"[HTTP] Listening on TCP 0.0.0.0:80","time":"2024-12-11 15:42:29"}
+{"level":"debug","msg":"[LDAP] Listening on TCP 0.0.0.0:389","time":"2024-12-11 15:42:29"}
+{"level":"debug","msg":"[DNS] Listening on UDP 0.0.0.0:53","time":"2024-12-11 15:42:29"}
+{"level":"debug","msg":"[SMTP] Listening on TCP 0.0.0.0:25","time":"2024-12-11 15:42:29"}
+{"level":"debug","msg":"[DNS] Listening on TCP 0.0.0.0:53","time":"2024-12-11 15:42:29"}
+{"level":"info","msg":"\n    _       __                       __       __  \n   (_)___  / /____  _________ ______/ /______/ /_ \n  / / __ \\/ __/ _ \\/ ___/ __ '/ ___/ __/ ___/ __ \\\n / / / / / /_/  __/ /  / /_/ / /__/ /_(__  ) / / /\n/_/_/ /_/\\__/\\___/_/   \\__,_/\\___/\\__/____/_/ /_/\n\n","time":"2024-12-11 15:42:45"}
+{"level":"info","msg":"\t\tprojectdiscovery.io\n\n","time":"2024-12-11 15:42:45"}
+{"level":"info","msg":"Current interactsh version 1.2.2 (\u001b[92mlatest\u001b[0m)","time":"2024-12-11 15:42:46"}
+{"level":"info","msg":"Listening with the following services:\n","time":"2024-12-11 15:42:46"}
+{"level":"debug","msg":"[SMTP] Listening on TCP 0.0.0.0:25","time":"2024-12-11 15:42:46"}
+{"level":"debug","msg":"[DNS] Listening on UDP 0.0.0.0:53","time":"2024-12-11 15:42:46"}
+{"level":"debug","msg":"[LDAP] Listening on TCP 0.0.0.0:389","time":"2024-12-11 15:42:46"}
+{"level":"debug","msg":"[HTTP] Listening on TCP 0.0.0.0:80","time":"2024-12-11 15:42:46"}
+{"level":"debug","msg":"[DNS] Listening on TCP 0.0.0.0:53","time":"2024-12-11 15:42:46"}
+{"level":"debug","msg":"New HTTP request: \n\nGET /favicon.ico HTTP/1.1\r\nHost: localhost\r\nAccept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8\r\nAccept-Encoding: gzip, deflate, br\r\nAccept-Language: de-DE,de;q=0.9\r\nReferer: http://localhost/displaySessions\r\nSec-Ch-Ua: \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"\r\nSec-Ch-Ua-Mobile: ?0\r\nSec-Ch-Ua-Platform: \"Windows\"\r\nSec-Fetch-Dest: image\r\nSec-Fetch-Mode: no-cors\r\nSec-Fetch-Site: same-origin\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.86 Safari/537.36\r\n\r\n\n","time":"2024-12-11 15:42:53"}
+{"level":"debug","msg":"Registered correlationID  for key\n","time":"2024-12-11 15:42:57"}

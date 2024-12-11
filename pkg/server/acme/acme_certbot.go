@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/secinto/interactsh/pkg/logging"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,8 +12,11 @@ import (
 
 	"github.com/caddyserver/certmagic"
 	"github.com/pkg/errors"
-	"github.com/projectdiscovery/gologger"
 	"go.uber.org/zap"
+)
+
+var (
+	log = logging.NewLogger()
 )
 
 // CleanupStorage perform cleanup routines tasks
@@ -61,9 +65,9 @@ func HandleWildcardCertificates(domain, email string, store *Provider, debug boo
 	var creating bool
 	if !certAlreadyExists(cfg, &certmagic.DefaultACME, domain) {
 		creating = true
-		gologger.Info().Msgf("Requesting SSL Certificate for:  [%s, %s]", domain, originalDomain)
+		log.Infof("Requesting SSL Certificate for:  [%s, %s]", domain, originalDomain)
 	} else {
-		gologger.Info().Msgf("Loading existing SSL Certificate for:  [%s, %s]", domain, originalDomain)
+		log.Infof("Loading existing SSL Certificate for:  [%s, %s]", domain, originalDomain)
 	}
 
 	// this obtains certificates or renews them if necessary
@@ -73,12 +77,12 @@ func HandleWildcardCertificates(domain, email string, store *Provider, debug boo
 
 	domains := []string{domain, originalDomain}
 	if syncErr := cfg.ManageSync(context.Background(), domains); syncErr != nil {
-		gologger.Error().Msgf("Could not manage certmagic certs: %s", syncErr)
+		log.Errorf("Could not manage certmagic certs: %s", syncErr)
 	}
 
 	if creating {
 		home, _ := os.UserHomeDir()
-		gologger.Info().Msgf("Successfully Created SSL Certificate at: %s", filepath.Join(home, ".local", "share", "certmagic"))
+		log.Infof("Successfully Created SSL Certificate at: %s", filepath.Join(home, ".local", "share", "certmagic"))
 	}
 
 	// attempts to extract certificates from caddy

@@ -3,12 +3,16 @@ package filewatcher
 import (
 	"bufio"
 	"errors"
+	"github.com/secinto/interactsh/pkg/logging"
 	"os"
 	"sync"
 	"time"
 
-	"github.com/projectdiscovery/gologger"
 	fileutil "github.com/projectdiscovery/utils/file"
+)
+
+var (
+	log = logging.NewLogger()
 )
 
 type Options struct {
@@ -37,7 +41,7 @@ func (f *FileWatcher) Watch() (chan string, error) {
 		for range f.watcher.C {
 			r, err := os.Open(f.Options.File)
 			if err != nil {
-				gologger.Fatal().Msgf("Couldn't monitor file: %s", err)
+				log.Fatalf("Couldn't monitor file: %s", err)
 				return
 			}
 			sc := bufio.NewScanner(r)

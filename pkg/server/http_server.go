@@ -11,7 +11,6 @@ import (
 	"github.com/secinto/interactsh/pkg/communication"
 	"gopkg.in/corvus-ch/zbase32.v1"
 	"html/template"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +24,6 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/projectdiscovery/gologger"
 	stringsutil "github.com/projectdiscovery/utils/strings"
 )
 
@@ -64,14 +62,14 @@ func NewHTTPServer(options *Options) (*HTTPServer, error) {
 	// If a static directory is specified, also serve it.
 	if options.HTTPDirectory != "" {
 		abs, _ := filepath.Abs(options.HTTPDirectory)
-		gologger.Info().Msgf("Loading directory (%s) to serve from : %s/s/", abs, strings.Join(options.Domains, ","))
+		log.Infof("Loading directory (%s) to serve from : %s/s/", abs, strings.Join(options.Domains, ","))
 		server.staticHandler = http.StripPrefix("/s/", disableDirectoryListing(http.FileServer(http.Dir(options.HTTPDirectory))))
 	}
 	// If custom index, read the custom index file and serve it.
 	// Supports {DOMAIN} placeholders.
 	if options.HTTPIndex != "" {
 		abs, _ := filepath.Abs(options.HTTPDirectory)
-		gologger.Info().Msgf("Using custom server index: %s", abs)
+		log.Infof("Using custom server index: %s", abs)
 		if data, err := os.ReadFile(options.HTTPIndex); err == nil {
 			server.customBanner = string(data)
 		}
@@ -90,8 +88,8 @@ func NewHTTPServer(options *Options) (*HTTPServer, error) {
 	router.Handle("/sessions", server.corsMiddleware(server.authMiddleware(http.HandlerFunc(server.getSessionList))))
 	router.Handle("/displaySessions", server.corsMiddleware(server.manualAuthMiddleware(http.HandlerFunc(server.displaySessionList))))
 	router.Handle("/displayInteractions", server.corsMiddleware(server.manualAuthMiddleware(http.HandlerFunc(server.displayInteractions))))
-	server.tlsserver = http.Server{Addr: options.ListenIP + fmt.Sprintf(":%d", options.HttpsPort), Handler: router, ErrorLog: log.New(&noopLogger{}, "", 0)}
-	server.nontlsserver = http.Server{Addr: options.ListenIP + fmt.Sprintf(":%d", options.HttpPort), Handler: router, ErrorLog: log.New(&noopLogger{}, "", 0)}
+	server.tlsserver = http.Server{Addr: options.ListenIP + fmt.Sprintf(":%d", options.HttpsPort), Handler: router}
+	server.nontlsserver = http.Server{Addr: options.ListenIP + fmt.Sprintf(":%d", options.HttpPort), Handler: router}
 	return server, nil
 }
 
@@ -105,7 +103,7 @@ func (h *HTTPServer) ListenAndServe(tlsConfig *tls.Config, httpAlive, httpsAlive
 
 		httpsAlive <- true
 		if err := h.tlsserver.ListenAndServeTLS("", ""); err != nil {
-			gologger.Error().Msgf("Could not serve http on tls: %s\n", err)
+			log.Errorf("Could not serve http on tls: %s\n", err)
 			httpsAlive <- false
 		}
 	}()
@@ -113,7 +111,7 @@ func (h *HTTPServer) ListenAndServe(tlsConfig *tls.Config, httpAlive, httpsAlive
 	httpAlive <- true
 	if err := h.nontlsserver.ListenAndServe(); err != nil {
 		httpAlive <- false
-		gologger.Error().Msgf("Could not serve http: %s\n", err)
+		log.Errorf("Could not serve http: %s\n", err)
 	}
 }
 
@@ -122,7 +120,7 @@ func (h *HTTPServer) logger(handler http.Handler) http.HandlerFunc {
 		req, _ := httputil.DumpRequest(r, true)
 		reqString := string(req)
 
-		gologger.Debug().Msgf("New HTTP request: \n\n%s\n", reqString)
+		log.Debugf("New HTTP request: \n\n%s\n", reqString)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, r)
 
@@ -162,11 +160,11 @@ func (h *HTTPServer) logger(handler http.Handler) http.HandlerFunc {
 					}
 					buffer := &bytes.Buffer{}
 					if err := jsoniter.NewEncoder(buffer).Encode(interaction); err != nil {
-						gologger.Warning().Msgf("Could not encode root tld http interaction: %s\n", err)
+						log.Debugf("Could not encode root tld http interaction: %s\n", err)
 					} else {
-						gologger.Debug().Msgf("Root TLD HTTP Interaction: \n%s\n", buffer.String())
+						log.Debugf("Root TLD HTTP Interaction: \n%s\n", buffer.String())
 						if err := h.options.Storage.AddInteractionWithId(ID, buffer.Bytes()); err != nil {
-							gologger.Warning().Msgf("Could not store root tld http interaction: %s\n", err)
+							log.Debugf("Could not store root tld http interaction: %s\n", err)
 						}
 					}
 				}
@@ -215,12 +213,12 @@ func (h *HTTPServer) handleInteraction(uniqueID, fullID, reqString, respString, 
 	}
 	buffer := &bytes.Buffer{}
 	if err := jsoniter.NewEncoder(buffer).Encode(interaction); err != nil {
-		gologger.Warning().Msgf("Could not encode http interaction: %s\n", err)
+		log.Debugf("Could not encode http interaction: %s\n", err)
 	} else {
-		gologger.Debug().Msgf("HTTP Interaction: \n%s\n", buffer.String())
+		log.Debugf("HTTP Interaction: \n%s\n", buffer.String())
 
 		if err := h.options.Storage.AddInteraction(correlationID, buffer.Bytes()); err != nil {
-			gologger.Warning().Msgf("Could not store http interaction: %s\n", err)
+			log.Debugf("Could not store http interaction: %s\n", err)
 		}
 	}
 }
@@ -366,7 +364,7 @@ func writeResponseFromDynamicRequest(w http.ResponseWriter, req *http.Request) {
 func (h *HTTPServer) registerHandler(w http.ResponseWriter, req *http.Request) {
 	r := &communication.RegisterRequest{}
 	if err := jsoniter.NewDecoder(req.Body).Decode(r); err != nil {
-		gologger.Warning().Msgf("Could not decode json body: %s\n", err)
+		log.Debugf("Could not decode json body: %s\n", err)
 		jsonError(w, fmt.Sprintf("could not decode json body: %s", err), http.StatusBadRequest)
 		return
 	}
@@ -391,7 +389,7 @@ func (h *HTTPServer) registerHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if err := h.options.Storage.SetIDPublicKey(r.CorrelationID, r.SecretKey, r.PublicKey, r.Description); err != nil {
-		gologger.Warning().Msgf("Could not set id and public key for %s: %s\n", r.CorrelationID, err)
+		log.Debugf("Could not set id and public key for %s: %s\n", r.CorrelationID, err)
 		jsonError(w, fmt.Sprintf("could not set id and public key: %s", err), http.StatusBadRequest)
 		return
 	}
@@ -407,12 +405,12 @@ func (h *HTTPServer) registerHandler(w http.ResponseWriter, req *http.Request) {
 		response := &IdEntry{CorrelationID: corrId, Nonce: nonce}
 
 		if err := jsoniter.NewEncoder(w).Encode(response); err != nil {
-			gologger.Warning().Msgf("Could not encode the Id %s/%s: %s\n", corrId, nonce, err)
+			log.Debugf("Could not encode the Id %s/%s: %s\n", corrId, nonce, err)
 			jsonError(w, fmt.Sprintf("could not encode the Id: %s", err), http.StatusBadRequest)
 			return
 		}
 	}
-	gologger.Debug().Msgf("Registered correlationID %s for key\n", r.CorrelationID)
+	log.Debugf("Registered correlationID %s for key\n", r.CorrelationID)
 }
 
 // deregisterHandler is a handler for client deregister requests
@@ -421,18 +419,18 @@ func (h *HTTPServer) deregisterHandler(w http.ResponseWriter, req *http.Request)
 
 	r := &communication.DeregisterRequest{}
 	if err := jsoniter.NewDecoder(req.Body).Decode(r); err != nil {
-		gologger.Warning().Msgf("Could not decode json body: %s\n", err)
+		log.Debugf("Could not decode json body: %s\n", err)
 		jsonError(w, fmt.Sprintf("could not decode json body: %s", err), http.StatusBadRequest)
 		return
 	}
 
 	if err := h.options.Storage.RemoveID(r.CorrelationID, r.SecretKey); err != nil {
-		gologger.Warning().Msgf("Could not remove id for %s: %s\n", r.CorrelationID, err)
+		log.Debugf("Could not remove id for %s: %s\n", r.CorrelationID, err)
 		jsonError(w, fmt.Sprintf("could not remove id: %s", err), http.StatusBadRequest)
 		return
 	}
 	jsonMsg(w, "deregistration successful", http.StatusOK)
-	gologger.Debug().Msgf("Deregistered correlationID %s for key\n", r.CorrelationID)
+	log.Debugf("Deregistered correlationID %s for key\n", r.CorrelationID)
 }
 
 // pollHandler is a handler for client poll requests
@@ -450,7 +448,7 @@ func (h *HTTPServer) pollHandler(w http.ResponseWriter, req *http.Request) {
 
 	data, aesKey, err := h.options.Storage.GetInteractions(ID, secret)
 	if err != nil {
-		gologger.Warning().Msgf("Could not get interactions for %s: %s\n", ID, err)
+		log.Debugf("Could not get interactions for %s: %s\n", ID, err)
 		jsonError(w, fmt.Sprintf("could not get interactions: %s", err), http.StatusBadRequest)
 		return
 	}
@@ -471,11 +469,11 @@ func (h *HTTPServer) pollHandler(w http.ResponseWriter, req *http.Request) {
 	response := &communication.PollResponse{Data: data, AESKey: aesKey, TLDData: tlddata, Extra: extradata}
 
 	if err := jsoniter.NewEncoder(w).Encode(response); err != nil {
-		gologger.Warning().Msgf("Could not encode interactions for %s: %s\n", ID, err)
+		log.Debugf("Could not encode interactions for %s: %s\n", ID, err)
 		jsonError(w, fmt.Sprintf("could not encode interactions: %s", err), http.StatusBadRequest)
 		return
 	}
-	gologger.Debug().Msgf("Polled %d interactions for %s correlationID\n", len(data), ID)
+	log.Debugf("Polled %d interactions for %s correlationID\n", len(data), ID)
 }
 
 func (h *HTTPServer) corsMiddleware(next http.Handler) http.Handler {
@@ -546,7 +544,7 @@ func (h *HTTPServer) descriptionHandler(w http.ResponseWriter, req *http.Request
 	} else {
 		desc, err := h.options.Storage.GetDescription(ID)
 		if err != nil {
-			gologger.Warning().Msgf("Could not get Description for %s: %s\n", ID, err)
+			log.Debugf("Could not get Description for %s: %s\n", ID, err)
 			jsonError(w, fmt.Sprintf("could not get Description: %s", err), http.StatusBadRequest)
 			return
 		}
@@ -554,11 +552,11 @@ func (h *HTTPServer) descriptionHandler(w http.ResponseWriter, req *http.Request
 	}
 
 	if err := jsoniter.NewEncoder(w).Encode(entries); err != nil {
-		gologger.Warning().Msgf("Could not encode description for %s: %s\n", ID, err)
+		log.Debugf("Could not encode description for %s: %s\n", ID, err)
 		jsonError(w, fmt.Sprintf("could not encode description: %s", err), http.StatusBadRequest)
 		return
 	}
-	gologger.Debug().Msgf("Returned Description for %s correlationID\n", ID)
+	log.Debugf("Returned Description for %s correlationID\n", ID)
 }
 
 // setDescriptionHandler is a handler for setDescription requests
@@ -566,18 +564,18 @@ func (h *HTTPServer) setDescriptionHandler(w http.ResponseWriter, req *http.Requ
 	ID, err1 := url.QueryUnescape(req.URL.Query().Get("id"))
 	desc, err2 := url.QueryUnescape(req.URL.Query().Get("desc"))
 	if err1 != nil || err2 != nil || ID == "" {
-		gologger.Warning().Msgf("Error when reading parameters!\n")
+		log.Debugf("Error when reading parameters!\n")
 		jsonError(w, "Error when reading parameters!", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.options.Storage.SetDescription(ID, desc); err != nil {
-		gologger.Warning().Msgf("Could not set description for %s: %s\n", ID, err)
+		log.Debugf("Could not set description for %s: %s\n", ID, err)
 		jsonError(w, fmt.Sprintf("could not set id and public key: %s", err), http.StatusBadRequest)
 		return
 	}
 	jsonMsg(w, "setDescription successful", http.StatusOK)
-	gologger.Debug().Msgf("Set description %s for Correlation ID %s\n", desc, ID)
+	log.Debugf("Set description %s for Correlation ID %s\n", desc, ID)
 }
 
 // getInteractionsHandler is a handler for getting the persistent interactions, regardless of cache-state
@@ -586,7 +584,7 @@ func (h *HTTPServer) getInteractionsHandler(w http.ResponseWriter, req *http.Req
 
 	data, err := h.options.Storage.GetPersistentInteractions(ID)
 	if err != nil {
-		gologger.Warning().Msgf("Could not get interactions for %s: %s\n", ID, err)
+		log.Debugf("Could not get interactions for %s: %s\n", ID, err)
 		jsonError(w, fmt.Sprintf("could not get interactions: %s", err), http.StatusBadRequest)
 		return
 	}
@@ -602,11 +600,11 @@ func (h *HTTPServer) getInteractionsHandler(w http.ResponseWriter, req *http.Req
 	response := &communication.PollResponse{Data: data, TLDData: tlddata, Extra: extradata}
 
 	if err := jsoniter.NewEncoder(w).Encode(response); err != nil {
-		gologger.Warning().Msgf("Could not encode interactions for %s: %s\n", ID, err)
+		log.Debugf("Could not encode interactions for %s: %s\n", ID, err)
 		jsonError(w, fmt.Sprintf("could not encode interactions: %s", err), http.StatusBadRequest)
 		return
 	}
-	gologger.Debug().Msgf("Polled %d interactions for %s correlationID\n", len(data), ID)
+	log.Debugf("Polled %d interactions for %s correlationID\n", len(data), ID)
 }
 
 // getSessionList is a handler for getting sessions, optionally filtered by time
@@ -623,7 +621,7 @@ func (h *HTTPServer) getSessionList(w http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			fromTime, err = time.Parse(communication.DateAndTime, from)
 			if err != nil {
-				gologger.Warning().Msgf("Invalid format for 'from': %s: %s\n", from, err)
+				log.Debugf("Invalid format for 'from': %s: %s\n", from, err)
 				jsonError(w, fmt.Sprintf("Invalid format for 'from': %s! Please use either 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM': %s\n", from, err), http.StatusBadRequest)
 				return
 			}
@@ -634,7 +632,7 @@ func (h *HTTPServer) getSessionList(w http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			toTime, err = time.Parse(communication.DateAndTime, to)
 			if err != nil {
-				gologger.Warning().Msgf("Invalid format for 'to': %s: %s\n", to, err)
+				log.Debugf("Invalid format for 'to': %s: %s\n", to, err)
 				jsonError(w, fmt.Sprintf("Invalid format for 'to': %s! Please use either YYYY-MM-DD or YYYY-MM-DD HH:MM:SS: %s\n", to, err), http.StatusBadRequest)
 				return
 			}
@@ -643,17 +641,17 @@ func (h *HTTPServer) getSessionList(w http.ResponseWriter, req *http.Request) {
 
 	data, err := h.options.Storage.GetRegisteredSessions(false, fromTime, toTime, desc, time.RFC822)
 	if err != nil {
-		gologger.Warning().Msgf("Could not get sessions: %s\n", err)
+		log.Debugf("Could not get sessions: %s\n", err)
 		jsonError(w, fmt.Sprintf("could not get interactions: %s", err), http.StatusBadRequest)
 		return
 	}
 
 	if err := jsoniter.NewEncoder(w).Encode(data); err != nil {
-		gologger.Warning().Msgf("Could not encode sessions: %s\n", err)
+		log.Debugf("Could not encode sessions: %s\n", err)
 		jsonError(w, fmt.Sprintf("could not encode sessions: %s", err), http.StatusBadRequest)
 		return
 	}
-	gologger.Debug().Msgf("Polled %d sessions\n", len(data))
+	log.Debugf("Polled %d sessions\n", len(data))
 }
 
 func (h *HTTPServer) queryToken(req *http.Request) bool {
@@ -697,13 +695,13 @@ func (h *HTTPServer) displaySessionList(w http.ResponseWriter, req *http.Request
 
 	t, err := template.New("SessionList").ParseFiles("pkg/server/templates/session_list.html")
 	if err != nil {
-		gologger.Warning().Msgf("Could not get template: %s\n", err)
+		log.Debugf("Could not get template: %s\n", err)
 		jsonError(w, fmt.Sprintf("could not get template: %s", err), http.StatusBadRequest)
 		return
 	}
 	sessions, err := h.options.Storage.GetRegisteredSessions(false, time.Time{}, time.Time{}, "", "02 Jan, 2006 15:04:05")
 	if err != nil {
-		gologger.Warning().Msgf("Could not get sessions: %s\n", err)
+		log.Debugf("Could not get sessions: %s\n", err)
 		jsonError(w, fmt.Sprintf("could not get interactions: %s", err), http.StatusBadRequest)
 		return
 	}
@@ -715,7 +713,7 @@ func (h *HTTPServer) displaySessionList(w http.ResponseWriter, req *http.Request
 	data := sessionList{Sessions: sessions, Auth: auth}
 	err = t.ExecuteTemplate(w, "SessionList", data)
 	if err != nil {
-		gologger.Warning().Msgf("Could not fill template: %s\n", err)
+		log.Debugf("Could not fill template: %s\n", err)
 		jsonError(w, fmt.Sprintf("could not fill template: %s", err), http.StatusBadRequest)
 		return
 	}
@@ -731,7 +729,7 @@ func (h *HTTPServer) displayInteractions(w http.ResponseWriter, req *http.Reques
 	}
 	ids, err := h.getIds()
 	if err != nil {
-		gologger.Warning().Msgf("Could not get IDs: %s\n", err)
+		log.Debugf("Could not get IDs: %s\n", err)
 		jsonError(w, fmt.Sprintf("could not get IDs: %s", err), http.StatusBadRequest)
 		return
 	}
@@ -739,7 +737,7 @@ func (h *HTTPServer) displayInteractions(w http.ResponseWriter, req *http.Reques
 	data := interactionList{Auth: auth, IDs: ids}
 	err = t.ExecuteTemplate(w, "InteractionList", data)
 	if err != nil {
-		gologger.Warning().Msgf("Could not fill template: %s\n", err)
+		log.Debugf("Could not fill template: %s\n", err)
 		jsonError(w, fmt.Sprintf("could not fill template: %s", err), http.StatusBadRequest)
 		return
 	}

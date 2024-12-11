@@ -13,7 +13,6 @@ import (
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/miekg/dns"
-	"github.com/projectdiscovery/gologger"
 	stringsutil "github.com/projectdiscovery/utils/strings"
 	"github.com/secinto/interactsh/pkg/server/acme"
 	"gopkg.in/yaml.v3"
@@ -67,7 +66,7 @@ func NewDNSServer(network string, options *Options) *DNSServer {
 func (h *DNSServer) ListenAndServe(dnsAlive chan bool) {
 	dnsAlive <- true
 	if err := h.server.ListenAndServe(); err != nil {
-		gologger.Error().Msgf("Could not listen for %s DNS on %s (%s)\n", strings.ToUpper(h.server.Net), h.server.Addr, err)
+		log.Errorf("Could not listen for %s DNS on %s (%s)\n", strings.ToUpper(h.server.Net), h.server.Addr, err)
 		dnsAlive <- false
 	}
 }
@@ -93,7 +92,7 @@ func (h *DNSServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		if strings.HasPrefix(strings.ToLower(domain), acme.DNSChallengeString) {
 			isDNSChallenge = true
 
-			gologger.Debug().Msgf("Got acme dns request: \n%s\n", r.String())
+			log.Debugf("Got acme dns request: \n%s\n", r.String())
 
 			switch question.Qtype {
 			case dns.TypeSOA:
@@ -110,7 +109,7 @@ func (h *DNSServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 				h.handleACNAMEANY(domain, m)
 			}
 
-			gologger.Debug().Msgf("Got acme dns response: \n%s\n", m.String())
+			log.Debugf("Got acme dns response: \n%s\n", m.String())
 		} else {
 			switch question.Qtype {
 			case dns.TypeA, dns.TypeAAAA, dns.TypeCNAME, dns.TypeANY:
@@ -132,7 +131,7 @@ func (h *DNSServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	if err := w.WriteMsg(m); err != nil {
-		gologger.Warning().Msgf("Could not write DNS response: \n%s\n %s\n", m.String(), err)
+		log.Debugf("Could not write DNS response: \n%s\n %s\n", m.String(), err)
 	}
 }
 
@@ -252,7 +251,7 @@ func (h *DNSServer) handleInteraction(domain string, w dns.ResponseWriter, r *dn
 	requestMsg := r.String()
 	responseMsg := m.String()
 
-	gologger.Debug().Msgf("New DNS request: %s\n", requestMsg)
+	log.Debugf("New DNS request: %s\n", requestMsg)
 
 	var foundDomain string
 	for _, configuredDomain := range h.options.Domains {
@@ -284,11 +283,11 @@ func (h *DNSServer) handleInteraction(domain string, w dns.ResponseWriter, r *dn
 
 		buffer := &bytes.Buffer{}
 		if err := jsoniter.NewEncoder(buffer).Encode(interaction); err != nil {
-			gologger.Warning().Msgf("Could not encode root tld dns interaction: %s\n", err)
+			log.Debugf("Could not encode root tld dns interaction: %s\n", err)
 		} else {
-			gologger.Debug().Msgf("Root TLD DNS Interaction: \n%s\n", buffer.String())
+			log.Debugf("Root TLD DNS Interaction: \n%s\n", buffer.String())
 			if err := h.options.Storage.AddInteractionWithId(correlationID, buffer.Bytes()); err != nil {
-				gologger.Warning().Msgf("Could not store dns interaction: %s\n", err)
+				log.Debugf("Could not store dns interaction: %s\n", err)
 			}
 		}
 	}
@@ -337,11 +336,11 @@ func (h *DNSServer) handleInteraction(domain string, w dns.ResponseWriter, r *dn
 		}
 		buffer := &bytes.Buffer{}
 		if err := jsoniter.NewEncoder(buffer).Encode(interaction); err != nil {
-			gologger.Warning().Msgf("Could not encode dns interaction: %s\n", err)
+			log.Debugf("Could not encode dns interaction: %s\n", err)
 		} else {
-			gologger.Debug().Msgf("DNS Interaction: \n%s\n", buffer.String())
+			log.Debugf("DNS Interaction: \n%s\n", buffer.String())
 			if err := h.options.Storage.AddInteraction(correlationID, buffer.Bytes()); err != nil {
-				gologger.Warning().Msgf("Could not store dns interaction: %s\n", err)
+				log.Debugf("Could not store dns interaction: %s\n", err)
 			}
 		}
 	}
@@ -367,7 +366,7 @@ func newCustomDNSRecordsServer(input string) *customDNSRecords {
 	}
 	if input != "" {
 		if err := server.readRecordsFromFile(input); err != nil {
-			gologger.Error().Msgf("Could not read custom DNS records: %s", err)
+			log.Errorf("Could not read custom DNS records: %s", err)
 		}
 	}
 	return server

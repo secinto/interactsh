@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"github.com/secinto/interactsh/pkg/logging"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -24,13 +25,13 @@ import (
 	"github.com/secinto/interactsh/pkg/client"
 	"github.com/secinto/interactsh/pkg/communication"
 	"github.com/secinto/interactsh/pkg/options"
-	"github.com/secinto/interactsh/pkg/server"
 	"github.com/secinto/interactsh/pkg/settings"
 )
 
 var (
 	healthcheck           bool
 	defaultConfigLocation = filepath.Join(folderutil.HomeDirOrDefault("."), ".config/interactsh-client/config.yaml")
+	log                   = logging.NewLogger()
 )
 
 func main() {
@@ -97,7 +98,7 @@ func main() {
 	)
 
 	if err := flagSet.Parse(); err != nil {
-		gologger.Fatal().Msgf("Could not parse options: %s\n", err)
+		log.Fatalf("Could not parse options: %s\n", err)
 	}
 
 	// If user have passed auth flag without key (ex: interactsh-client -auth)
@@ -114,7 +115,7 @@ func main() {
 				options.ShowBanner()
 				asnmap.PDCPApiKey = validatedCreds.APIKey
 				if err = ph.SaveCreds(validatedCreds); err != nil {
-					gologger.Warning().Msgf("Could not save credentials to file: %s\n", err)
+					log.Debugf("Could not save credentials to file: %s\n", err)
 				}
 			}
 		}
@@ -124,11 +125,11 @@ func main() {
 
 	if healthcheck {
 		cfgFilePath, _ := flagSet.GetConfigFilePath()
-		gologger.Print().Msgf("%s\n", runner.DoHealthCheck(cfgFilePath))
+		log.Infof("%s\n", runner.DoHealthCheck(cfgFilePath))
 		os.Exit(0)
 	}
 	if cliOptions.Version {
-		gologger.Info().Msgf("Current Version: %s\n", options.Version)
+		log.Infof("Current Version: %s\n", options.Version)
 		os.Exit(0)
 	}
 
@@ -136,16 +137,16 @@ func main() {
 		latestVersion, err := updateutils.GetToolVersionCallback("interactsh-client", options.Version)()
 		if err != nil {
 			if cliOptions.Verbose {
-				gologger.Error().Msgf("interactsh version check failed: %v", err.Error())
+				log.Errorf("interactsh version check failed: %v", err.Error())
 			}
 		} else {
-			gologger.Info().Msgf("Current interactsh version %v %v", options.Version, updateutils.GetVersionDescription(options.Version, latestVersion))
+			log.Infof("Current interactsh version %v %v", options.Version, updateutils.GetVersionDescription(options.Version, latestVersion))
 		}
 	}
 
 	if cliOptions.Config != defaultConfigLocation {
 		if err := flagSet.MergeConfigFile(cliOptions.Config); err != nil {
-			gologger.Fatal().Msgf("Could not read config: %s\n", err)
+			log.Fatalf("Could not read config: %s\n", err)
 		}
 	}
 
@@ -153,7 +154,7 @@ func main() {
 	var err error
 	if cliOptions.Output != "" {
 		if outputFile, err = os.Create(cliOptions.Output); err != nil {
-			gologger.Fatal().Msgf("Could not create output file: %s\n", err)
+			log.Fatalf("Could not create output file: %s\n", err)
 		}
 		defer outputFile.Close()
 	}
@@ -173,74 +174,6 @@ func main() {
 		SessionInfo:              sessionInfo,
 		Description:              cliOptions.Description,
 	}
-
-	if cliOptions.QueryDescription {
-		descriptions, err := client.DescriptionQuery(options, cliOptions.SearchString)
-		if err != nil {
-			gologger.Fatal().Msgf("Could not fetch Descriptions: %s\n", err)
-		}
-		printDescriptions(descriptions)
-
-		os.Exit(0)
-	}
-	if cliOptions.QuerySessions {
-		sessions, err := client.SessionQuery(options, "", "", cliOptions.SearchString)
-		if err != nil {
-			gologger.Fatal().Msgf("Could not fetch sessions: %s\n", err)
-		}
-
-		printSessions(sessions)
-		os.Exit(0)
-	}
-
-	if cliOptions.SetDescription != "" {
-		if len(strings.Split(cliOptions.SetDescription, ":")) != 2 {
-			gologger.Fatal().Msgf("Wrong format! Use ID:Description")
-		}
-		if err := client.SetDesc(options, cliOptions.SetDescription); err != nil {
-			gologger.Fatal().Msgf("Could not set new description: %s\n", err)
-		}
-
-		gologger.Info().Msgf("Description updated successfully!")
-		os.Exit(0)
-	}
-
-	if cliOptions.QueryInteractions != "" {
-		response, err := client.InteractionQuery(options, cliOptions.QueryInteractions)
-		if err != nil {
-			gologger.Fatal().Msgf("Could not get interactions: %s\n", err)
-		}
-
-		for _, interactionData := range response.Data {
-			interaction := &communication.Interaction{}
-
-			if err := jsoniter.Unmarshal([]byte(interactionData), interaction); err != nil {
-				gologger.Error().Msgf("Could not unmarshal interaction data interaction: %v\n", err)
-				continue
-			}
-			printFunction(interaction)
-		}
-		os.Exit(0)
-	}
-
-	client, err := client.New(options)
-	if err != nil {
-		gologger.Fatal().Msgf("Could not create client: %s\n", err)
-	}
-
-	interactshURLs := generatePayloadURL(cliOptions.NumberOfPayloads, client)
-
-	gologger.Info().Msgf("Listing %d payload for OOB Testing\n", cliOptions.NumberOfPayloads)
-	for _, interactshURL := range interactshURLs {
-		gologger.Info().Msgf("%s\n", interactshURL)
-	}
-
-	if cliOptions.StorePayload && cliOptions.StorePayloadFile != "" {
-		if err := os.WriteFile(cliOptions.StorePayloadFile, []byte(strings.Join(interactshURLs, "\n")), 0644); err != nil {
-			gologger.Fatal().Msgf("Could not write to payload output file: %s\n", err)
-		}
-	}
-
 	// show all interactions
 	noFilter := !cliOptions.DNSOnly && !cliOptions.HTTPOnly && !cliOptions.SmtpOnly
 
@@ -248,25 +181,21 @@ func main() {
 	var filter *regexMatcher
 	if len(cliOptions.Match) > 0 {
 		if matcher, err = newRegexMatcher(cliOptions.Match); err != nil {
-			gologger.Fatal().Msgf("Could not compile matchers: %s\n", err)
+			log.Fatalf("Could not compile matchers: %s\n", err)
 		}
 	}
 	if len(cliOptions.Filter) > 0 {
 		if filter, err = newRegexMatcher(cliOptions.Filter); err != nil {
-			gologger.Fatal().Msgf("Could not compile filter: %s\n", err)
+			log.Fatalf("Could not compile filter: %s\n", err)
 		}
 	}
 
-	err = client.StartPolling(time.Duration(cliOptions.PollInterval)*time.Second, func(interaction *server.Interaction) {
+	printFunction := func(interaction *communication.Interaction) {
 		if matcher != nil && !matcher.match(interaction.FullId) {
 			return
 		}
 		if filter != nil && filter.match(interaction.FullId) {
 			return
-		}
-
-		if cliOptions.Asn {
-			_ = client.TryGetAsnInfo(interaction)
 		}
 
 		if !cliOptions.JSON {
@@ -325,7 +254,7 @@ func main() {
 		} else {
 			b, err := jsoniter.Marshal(interaction)
 			if err != nil {
-				gologger.Error().Msgf("Could not marshal json output: %s\n", err)
+				log.Errorf("Could not marshal json output: %s\n", err)
 			} else {
 				os.Stdout.Write(b)
 				os.Stdout.Write([]byte("\n"))
@@ -335,7 +264,76 @@ func main() {
 				_, _ = outputFile.Write([]byte("\n"))
 			}
 		}
-	})
+	}
+
+	if cliOptions.QueryDescription {
+		descriptions, err := client.DescriptionQuery(options, cliOptions.SearchString)
+		if err != nil {
+			log.Fatalf("Could not fetch Descriptions: %s\n", err)
+		}
+		printDescriptions(descriptions)
+
+		os.Exit(0)
+	}
+	if cliOptions.QuerySessions {
+		sessions, err := client.SessionQuery(options, "", "", cliOptions.SearchString)
+		if err != nil {
+			log.Fatalf("Could not fetch sessions: %s\n", err)
+		}
+
+		printSessions(sessions)
+		os.Exit(0)
+	}
+
+	if cliOptions.SetDescription != "" {
+		if len(strings.Split(cliOptions.SetDescription, ":")) != 2 {
+			log.Fatalf("Wrong format! Use ID:Description")
+		}
+		if err := client.SetDesc(options, cliOptions.SetDescription); err != nil {
+			log.Fatalf("Could not set new description: %s\n", err)
+		}
+
+		log.Infof("Description updated successfully!")
+		os.Exit(0)
+	}
+
+	if cliOptions.QueryInteractions != "" {
+		response, err := client.InteractionQuery(options, cliOptions.QueryInteractions)
+		if err != nil {
+			log.Fatalf("Could not get interactions: %s\n", err)
+		}
+
+		for _, interactionData := range response.Data {
+			interaction := &communication.Interaction{}
+
+			if err := jsoniter.Unmarshal([]byte(interactionData), interaction); err != nil {
+				log.Errorf("Could not unmarshal interaction data interaction: %v\n", err)
+				continue
+			}
+			printFunction(interaction)
+		}
+		os.Exit(0)
+	}
+
+	client, err := client.New(options)
+	if err != nil {
+		log.Fatalf("Could not create client: %s\n", err)
+	}
+
+	interactshURLs := generatePayloadURL(cliOptions.NumberOfPayloads, client)
+
+	log.Infof("Listing %d payload for OOB Testing\n", cliOptions.NumberOfPayloads)
+	for _, interactshURL := range interactshURLs {
+		log.Infof("%s\n", interactshURL)
+	}
+
+	if cliOptions.StorePayload && cliOptions.StorePayloadFile != "" {
+		if err := os.WriteFile(cliOptions.StorePayloadFile, []byte(strings.Join(interactshURLs, "\n")), 0644); err != nil {
+			log.Fatalf("Could not write to payload output file: %s\n", err)
+		}
+	}
+
+	err = client.StartPolling(time.Duration(cliOptions.PollInterval)*time.Second, printFunction)
 	if err != nil {
 		gologger.Error().Msg(err.Error())
 	}
@@ -358,23 +356,23 @@ func main() {
 const descSize = 50
 
 func printDescriptions(descriptions []*communication.DescriptionEntry) {
-	gologger.Silent().Msgf("\n%20s %10s %*s\n", "ID", "Date", descSize, "DESCRIPTION")
+	log.Debugf("\n%20s %10s %*s\n", "ID", "Date", descSize, "DESCRIPTION")
 	for i := range descriptions {
 		descChunks := client.SplitChunks(descriptions[i].Description, descSize)
-		gologger.Silent().Msgf("%20s %10s %*s\n", descriptions[i].CorrelationID, descriptions[i].Date, descSize, descChunks[0])
+		log.Debugf("%20s %10s %*s\n", descriptions[i].CorrelationID, descriptions[i].Date, descSize, descChunks[0])
 		for i := 1; i < len(descChunks); i++ {
-			gologger.Silent().Msgf("%20s %10s %*s\n", "", "", descSize, descChunks[i])
+			log.Debugf("%20s %10s %*s\n", "", "", descSize, descChunks[i])
 		}
 	}
 }
 
 func printSessions(sessions []*communication.SessionEntry) {
-	gologger.Silent().Msgf("\n%20s %20s %20s %*s\n", "ID", "Registered At", "Deregistered At", descSize, "Description")
+	log.Debugf("\n%20s %20s %20s %*s\n", "ID", "Registered At", "Deregistered At", descSize, "Description")
 	for i := range sessions {
 		descChunks := client.SplitChunks(sessions[i].Description, descSize)
-		gologger.Silent().Msgf("%20s %20s %20s %*s\n", sessions[i].ID, sessions[i].RegisterDate, sessions[i].DeregisterDate, descSize, descChunks[0])
+		log.Debugf("%20s %20s %20s %*s\n", sessions[i].ID, sessions[i].RegisterDate, sessions[i].DeregisterDate, descSize, descChunks[0])
 		for i := 1; i < len(descChunks); i++ {
-			gologger.Silent().Msgf("%20s %20s %20s %*s\n", "", "", "", descSize, descChunks[i])
+			log.Debugf("%20s %20s %20s %*s\n", "", "", "", descSize, descChunks[i])
 		}
 	}
 }
@@ -392,7 +390,7 @@ func writeOutput(outputFile *os.File, builder *bytes.Buffer) {
 		_, _ = outputFile.Write(builder.Bytes())
 		_, _ = outputFile.Write([]byte("\n"))
 	}
-	gologger.Silent().Msgf("%s", builder.String())
+	log.Infof("%s", builder.String())
 }
 
 type regexMatcher struct {

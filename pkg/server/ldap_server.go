@@ -10,7 +10,6 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/projectdiscovery/gologger"
 	ldap "github.com/projectdiscovery/ldapserver"
 	stringsutil "github.com/projectdiscovery/utils/strings"
 )
@@ -61,7 +60,7 @@ func (ldapServer *LDAPServer) ListenAndServe(tlsConfig *tls.Config, ldapAlive ch
 	ldapAlive <- true
 	ldapServer.tlsConfig = tlsConfig
 	if err := ldapServer.server.ListenAndServe(fmt.Sprintf("%s:%d", ldapServer.options.ListenIP, ldapServer.options.LdapPort)); err != nil {
-		gologger.Error().Msgf("Could not serve ldap on port 10389: %s\n", err)
+		log.Errorf("Could not serve ldap on port 10389: %s\n", err)
 		ldapAlive <- false
 	}
 }
@@ -148,11 +147,11 @@ func (ldapServer *LDAPServer) handleInteraction(uniqueID, fullID, reqString, hos
 		}
 		buffer := &bytes.Buffer{}
 		if err := jsoniter.NewEncoder(buffer).Encode(interaction); err != nil {
-			gologger.Warning().Msgf("Could not encode ldap interaction: %s\n", err)
+			log.Debugf("Could not encode ldap interaction: %s\n", err)
 		} else {
-			gologger.Debug().Msgf("LDAP Interaction: \n%s\n", buffer.String())
+			log.Debugf("LDAP Interaction: \n%s\n", buffer.String())
 			if err := ldapServer.options.Storage.AddInteraction(correlationID, buffer.Bytes()); err != nil {
-				gologger.Warning().Msgf("Could not store ldap interaction: %s\n", err)
+				log.Debugf("Could not store ldap interaction: %s\n", err)
 			}
 		}
 
@@ -414,11 +413,11 @@ func (ldapServer *LDAPServer) logInteraction(interaction communication.Interacti
 	interaction.Timestamp = time.Now()
 	buffer := &bytes.Buffer{}
 	if err := jsoniter.NewEncoder(buffer).Encode(interaction); err != nil {
-		gologger.Warning().Msgf("Could not encode ldap interaction: %s\n", err)
+		log.Debugf("Could not encode ldap interaction: %s\n", err)
 	} else {
-		gologger.Debug().Msgf("LDAP Interaction: \n%s\n", buffer.String())
+		log.Debugf("LDAP Interaction: \n%s\n", buffer.String())
 		if err := ldapServer.options.Storage.AddInteractionWithId(ldapServer.options.Token, buffer.Bytes()); err != nil {
-			gologger.Warning().Msgf("Could not store ldap interaction: %s\n", err)
+			log.Debugf("Could not store ldap interaction: %s\n", err)
 		}
 	}
 }

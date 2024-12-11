@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/secinto/interactsh/pkg/logging"
+	"github.com/sirupsen/logrus"
 	"net"
 	"net/http"
 	"os"
@@ -17,8 +19,6 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/projectdiscovery/goflags"
-	"github.com/projectdiscovery/gologger"
-	"github.com/projectdiscovery/gologger/levels"
 	folderutil "github.com/projectdiscovery/utils/folder"
 	iputil "github.com/projectdiscovery/utils/ip"
 	stringsutil "github.com/projectdiscovery/utils/strings"
@@ -35,6 +35,7 @@ var (
 	healthcheck           bool
 	defaultConfigLocation = filepath.Join(folderutil.HomeDirOrDefault("."), ".config/interactsh-server/config.yaml")
 	pprofServerAddress    = "127.0.0.1:8086"
+	log                   *logging.Logger
 )
 
 func main() {
@@ -105,40 +106,48 @@ func main() {
 		flagSet.BoolVarP(&cliOptions.Verbose, "verbose", "v", false, "display verbose interaction"),
 	)
 
+	if cliOptions.Debug {
+		log = logging.NewLoggerWithLevel(logrus.DebugLevel)
+	} else {
+		log = logging.NewLogger()
+	}
+
 	if err := flagSet.Parse(); err != nil {
-		gologger.Fatal().Msgf("Could not parse options: %s\n", err)
+		log.Fatalf("Could not parse options: %s\n", err)
 	}
 	options.ShowBanner()
 
 	if healthcheck {
 		cfgFilePath, _ := flagSet.GetConfigFilePath()
-		gologger.Print().Msgf("%s\n", runner.DoHealthCheck(cfgFilePath))
+		log.Infof("%s\n", runner.DoHealthCheck(cfgFilePath))
 		os.Exit(0)
 	}
 	if cliOptions.Version {
-		gologger.Info().Msgf("Current Version: %s\n", options.Version)
+		log.Infof("Current Version: %s\n", options.Version)
 		os.Exit(0)
 	}
+
+	logging.ReadViperConfig()
 
 	if !cliOptions.DisableUpdateCheck {
 		latestVersion, err := updateutils.GetToolVersionCallback("interactsh-server", options.Version)()
 		if err != nil {
 			if cliOptions.Verbose {
-				gologger.Error().Msgf("interactsh version check failed: %v", err.Error())
+				log.Errorf("interactsh version check failed: %v", err.Error())
 			}
 		} else {
-			gologger.Info().Msgf("Current interactsh version %v %v", options.Version, updateutils.GetVersionDescription(options.Version, latestVersion))
+			log.Infof("Current interactsh version %v %v", options.Version, updateutils.GetVersionDescription(options.Version, latestVersion))
 		}
 	}
 
 	if cliOptions.Config != defaultConfigLocation {
 		if err := flagSet.MergeConfigFile(cliOptions.Config); err != nil {
-			gologger.Fatal().Msgf("Could not read config: %s\n", err)
+			log.Fatalf("Could not read config: %s\n", err)
 		}
 	}
 
 	if len(cliOptions.Domains) == 0 {
-		gologger.Fatal().Msgf("No domains specified\n")
+		log.Fatalf("No domains specified\n")
 	}
 
 	if cliOptions.IPAddress == "" && cliOptions.ListenIP == "0.0.0.0" {
@@ -146,13 +155,13 @@ func main() {
 		outboundIP, _ := iputil.GetSourceIP("scanme.sh")
 
 		if publicIP == "" && outboundIP == nil {
-			gologger.Fatal().Msgf("Could not determine public IP address\n")
+			log.Fatalf("Could not determine public IP address\n")
 		}
 		if publicIP == "" && outboundIP != nil {
 			publicIP = outboundIP.String()
 		}
-		gologger.Info().Msgf("Public IP: %s\n", publicIP)
-		gologger.Info().Msgf("Outbound IP: %s\n", outboundIP)
+		log.Infof("Public IP: %s\n", publicIP)
+		log.Infof("Outbound IP: %s\n", outboundIP)
 		// it's essential to be able to bind to cliOptions.DnsPort on any of the two ips
 		bindableIP, err := iputil.GetBindableAddress(cliOptions.DnsPort, publicIP, outboundIP.String())
 		if bindableIP == "" && err != nil {
@@ -168,7 +177,7 @@ func main() {
 					addressesBuilder.WriteString(fmt.Sprintf("%s: %s\n", networkInterface.Name, strings.Join(addressesStr, ",")))
 				}
 			}
-			gologger.Fatal().Msgf("%s\nNo bindable address could be found for port %d\nPlease ensure to have proper privileges and/or choose the correct ip:\n%s\n", err, cliOptions.DnsPort, addressesBuilder.String())
+			log.Fatalf("%s\nNo bindable address could be found for port %d\nPlease ensure to have proper privileges and/or choose the correct ip:\n%s\n", err, cliOptions.DnsPort, addressesBuilder.String())
 		}
 		cliOptions.ListenIP = bindableIP
 		cliOptions.IPAddress = publicIP
@@ -180,13 +189,10 @@ func main() {
 	}
 
 	serverOptions := cliOptions.AsServerOptions()
-	if cliOptions.Debug {
-		gologger.DefaultLogger.SetMaxLevel(levels.LevelDebug)
-	}
 
 	// responder and smb can't be active at the same time
 	if cliOptions.Responder && cliOptions.Smb {
-		gologger.Fatal().Msgf("responder and smb can't be active at the same time\n")
+		log.Fatalf("responder and smb can't be active at the same time\n")
 	}
 
 	// Requires auth if token is specified or enables it automatically for responder and smb options
@@ -207,10 +213,10 @@ func main() {
 	if serverOptions.Auth && serverOptions.Token == "" {
 		b := make([]byte, 32)
 		if _, err := rand.Read(b); err != nil {
-			gologger.Fatal().Msgf("Could not generate token\n")
+			log.Fatalf("Could not generate token\n")
 		}
 		serverOptions.Token = hex.EncodeToString(b)
-		gologger.Info().Msgf("Client Token: %s\n", serverOptions.Token)
+		log.Infof("Client Token: %s\n", serverOptions.Token)
 	}
 
 	evictionTTL := time.Duration(cliOptions.Eviction) * time.Hour * 24
@@ -222,7 +228,7 @@ func main() {
 	storeOptions.EvictionTTL = evictionTTL
 	if cliOptions.DiskStorage {
 		if cliOptions.DiskStoragePath == "" {
-			gologger.Fatal().Msgf("disk storage path must be specified\n")
+			log.Fatalf("disk storage path must be specified\n")
 		}
 		storeOptions.DbPath = cliOptions.DiskStoragePath
 	}
@@ -230,7 +236,7 @@ func main() {
 	var err error
 	store, err = storage.New(&storeOptions)
 	if err != nil {
-		gologger.Fatal().Msgf("couldn't create storage: %s\n", err)
+		log.Fatalf("couldn't create storage: %s\n", err)
 	}
 
 	serverOptions.Storage = store
@@ -271,7 +277,7 @@ func main() {
 		}
 		acmeManagerTLS, acmeErr := acme.BuildTlsConfigWithCertAndKeyPaths(cliOptions.CertificatePath, cliOptions.PrivateKeyPath, domain)
 		if acmeErr != nil {
-			gologger.Error().Msgf("https will be disabled: %s", acmeErr)
+			log.Errorf("https will be disabled: %s", acmeErr)
 		} else {
 			tlsConfig = acmeManagerTLS
 		}
@@ -283,8 +289,8 @@ func main() {
 			var acmeErr error
 			domainCerts, certFiles, acmeErr = acme.HandleWildcardCertificates(fmt.Sprintf("*.%s", trimmedDomain), hostmaster, acmeStore, cliOptions.Debug)
 			if acmeErr != nil {
-				gologger.Error().Msgf("An error occurred while applying for a certificate, error: %v", acmeErr)
-				gologger.Error().Msgf("Could not generate certs for auto TLS, https will be disabled")
+				log.Errorf("An error occurred while applying for a certificate, error: %v", acmeErr)
+				log.Errorf("Could not generate certs for auto TLS, https will be disabled")
 			} else {
 				certs = append(certs, domainCerts...)
 			}
@@ -292,7 +298,7 @@ func main() {
 		var tlsErr error
 		tlsConfig, tlsErr = acme.BuildTlsConfigWithCerts("", certs...)
 		if tlsErr != nil {
-			gologger.Error().Msgf("An error occurred while preparing tls configuration, error: %v", tlsErr)
+			log.Errorf("An error occurred while preparing tls configuration, error: %v", tlsErr)
 		}
 	}
 
@@ -304,7 +310,7 @@ func main() {
 
 	httpServer, err := server.NewHTTPServer(serverOptions)
 	if err != nil {
-		gologger.Fatal().Msgf("Could not create HTTP server: %s", err)
+		log.Fatalf("Could not create HTTP server: %s", err)
 	}
 	httpAlive := make(chan bool)
 	httpsAlive := make(chan bool)
@@ -312,7 +318,7 @@ func main() {
 
 	smtpServer, err := server.NewSMTPServer(serverOptions)
 	if err != nil {
-		gologger.Fatal().Msgf("Could not create SMTP server: %s", err)
+		log.Fatalf("Could not create SMTP server: %s", err)
 	}
 	smtpAlive := make(chan bool)
 	smtpsAlive := make(chan bool)
@@ -321,7 +327,7 @@ func main() {
 	ldapAlive := make(chan bool)
 	ldapServer, err := server.NewLDAPServer(serverOptions, cliOptions.LdapWithFullLogger)
 	if err != nil {
-		gologger.Fatal().Msgf("Could not create LDAP server: %s", err)
+		log.Fatalf("Could not create LDAP server: %s", err)
 	}
 	go ldapServer.ListenAndServe(tlsConfig, ldapAlive)
 	defer ldapServer.Close()
@@ -331,7 +337,7 @@ func main() {
 	if cliOptions.Ftp {
 		ftpServer, err := server.NewFTPServer(serverOptions)
 		if err != nil {
-			gologger.Fatal().Msgf("Could not create FTP server: %s", err)
+			log.Fatalf("Could not create FTP server: %s", err)
 		}
 		go ftpServer.ListenAndServe(tlsConfig, ftpAlive, ftpsAlive) //nolint
 	}
@@ -340,7 +346,7 @@ func main() {
 	if cliOptions.Responder {
 		responderServer, err := server.NewResponderServer(serverOptions)
 		if err != nil {
-			gologger.Fatal().Msgf("Could not create SMB server: %s", err)
+			log.Fatalf("Could not create SMB server: %s", err)
 		}
 		go responderServer.ListenAndServe(responderAlive) //nolint
 		defer responderServer.Close()
@@ -350,13 +356,13 @@ func main() {
 	if cliOptions.Smb {
 		smbServer, err := server.NewSMBServer(serverOptions)
 		if err != nil {
-			gologger.Fatal().Msgf("Could not create SMB server: %s", err)
+			log.Fatalf("Could not create SMB server: %s", err)
 		}
 		go smbServer.ListenAndServe(smbAlive) //nolint
 		defer smbServer.Close()
 	}
 
-	gologger.Info().Msgf("Listening with the following services:\n")
+	log.Infof("Listening with the following services:\n")
 	go func() {
 		for {
 			service := ""
@@ -413,11 +419,11 @@ func main() {
 				port = serverOptions.LdapPort
 			}
 			if status {
-				gologger.Silent().Msgf("[%s] Listening on %s %s:%d", service, network, serverOptions.ListenIP, port)
+				log.Debugf("[%s] Listening on %s %s:%d", service, network, serverOptions.ListenIP, port)
 			} else if fatal {
-				gologger.Fatal().Msgf("The %s %s service has unexpectedly stopped", network, service)
+				log.Fatalf("The %s %s service has unexpectedly stopped", network, service)
 			} else {
-				gologger.Warning().Msgf("The %s %s service has unexpectedly stopped", network, service)
+				log.Debugf("The %s %s service has unexpectedly stopped", network, service)
 			}
 		}
 	}()
@@ -428,7 +434,7 @@ func main() {
 			Addr:    pprofServerAddress,
 			Handler: http.DefaultServeMux,
 		}
-		gologger.Info().Msgf("Listening pprof debug server on: %s", pprofServerAddress)
+		log.Infof("Listening pprof debug server on: %s", pprofServerAddress)
 		go func() {
 			_ = pprofServer.ListenAndServe()
 		}()
@@ -438,7 +444,7 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	for range c {
 		if err := store.Close(); err != nil {
-			gologger.Warning().Msgf("Couldn't close the storage: %s\n", err)
+			log.Debugf("Couldn't close the storage: %s\n", err)
 		}
 		if pprofServer != nil {
 			pprofServer.Close()

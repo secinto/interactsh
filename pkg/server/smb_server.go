@@ -12,7 +12,6 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
-	"github.com/projectdiscovery/gologger"
 	fileutil "github.com/projectdiscovery/utils/file"
 	stringsutil "github.com/projectdiscovery/utils/strings"
 	"github.com/secinto/interactsh/pkg/filewatcher"
@@ -98,7 +97,7 @@ func (h *SMBServer) ListenAndServe(smbAlive chan bool) error {
 				if strings.Contains(data, searchTerm) {
 					smbData, err := stringsutil.After(data, extractAfter)
 					if err != nil {
-						gologger.Warning().Msgf("Could not get smb interaction: %s\n", err)
+						log.Debugf("Could not get smb interaction: %s\n", err)
 						continue
 					}
 
@@ -110,11 +109,11 @@ func (h *SMBServer) ListenAndServe(smbAlive chan bool) error {
 					}
 					buffer := &bytes.Buffer{}
 					if err := jsoniter.NewEncoder(buffer).Encode(interaction); err != nil {
-						gologger.Warning().Msgf("Could not encode smb interaction: %s\n", err)
+						log.Debugf("Could not encode smb interaction: %s\n", err)
 					} else {
-						gologger.Debug().Msgf("SMB Interaction: \n%s\n", buffer.String())
+						log.Debugf("SMB Interaction: \n%s\n", buffer.String())
 						if err := h.options.Storage.AddInteractionWithId(h.options.Token, buffer.Bytes()); err != nil {
-							gologger.Warning().Msgf("Could not store dns interaction: %s\n", err)
+							log.Debugf("Could not store dns interaction: %s\n", err)
 						}
 					}
 				}

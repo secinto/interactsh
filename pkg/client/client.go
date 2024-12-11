@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/secinto/interactsh/pkg/communication"
+	"github.com/secinto/interactsh/pkg/logging"
 	"io"
 	"io/ioutil"
 	mathrand "math/rand"
@@ -29,7 +30,6 @@ import (
 	"github.com/google/uuid"
 	jsoniter "github.com/json-iterator/go"
 	asnmap "github.com/projectdiscovery/asnmap/libs"
-	"github.com/projectdiscovery/gologger"
 	"github.com/projectdiscovery/retryablehttp-go"
 	errorutil "github.com/projectdiscovery/utils/errors"
 	iputil "github.com/projectdiscovery/utils/ip"
@@ -44,7 +44,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var authError = errors.New("couldn't authenticate to the server")
+var (
+	log       = logging.NewLogger()
+	authError = errors.New("couldn't authenticate to the server")
+)
 
 type State uint8
 
@@ -391,7 +394,7 @@ func (c *Client) parseServerURLs(serverURL string, payload []byte, action func(s
 		if err := action(parsed.String(), payload); err != nil {
 			if !c.disableHTTPFallback && parsed.Scheme == "https" {
 				parsed.Scheme = "http"
-				gologger.Verbose().Msgf("Could not register to %s: %s, retrying with http\n", parsed.String(), err)
+				log.Debugf("Could not register to %s: %s, retrying with http\n", parsed.String(), err)
 				goto makeReq
 			}
 			return err
@@ -408,7 +411,7 @@ func (c *Client) parseServerURLs(serverURL string, payload []byte, action func(s
 		}
 		err := registerFunc(index, item)
 		if err != nil {
-			gologger.Verbose().Msgf("Could not register to %s: %s, retrying with remaining\n", item, err)
+			log.Debugf("Could not register to %s: %s, retrying with remaining\n", item, err)
 			registerErrors = append(registerErrors, err)
 		}
 		return nil
@@ -449,9 +452,9 @@ func (c *Client) StartPolling(duration time.Duration, callback InteractionCallba
 				err := c.getInteractions(callback)
 				if err != nil {
 					if errorutil.IsAny(err, authError) {
-						gologger.Error().Msgf("Could not authenticate to the server %v", err)
+						log.Errorf("Could not authenticate to the server %v", err)
 					} else if errorutil.IsAny(err, storage.ErrCorrelationIdNotFound) {
-						gologger.Error().Msgf("The correlation id was not found (probably evicted due to inactivity): %v", err)
+						log.Errorf("The correlation id was not found (probably evicted due to inactivity): %v", err)
 					}
 				}
 			case <-c.quitChan:
@@ -509,19 +512,19 @@ func (c *Client) getInteractions(callback InteractionCallback) error {
 	}
 	response := &communication.PollResponse{}
 	if err := jsoniter.NewDecoder(resp.Body).Decode(response); err != nil {
-		gologger.Error().Msgf("Could not decode interactions: %v\n", err)
+		log.Errorf("Could not decode interactions: %v\n", err)
 		return err
 	}
 
 	for _, data := range response.Data {
 		plaintext, err := c.decryptMessage(response.AESKey, data)
 		if err != nil {
-			gologger.Error().Msgf("Could not decrypt interaction: %v\n", err)
+			log.Errorf("Could not decrypt interaction: %v\n", err)
 			continue
 		}
 		interaction := &communication.Interaction{}
 		if err := jsoniter.Unmarshal(plaintext, interaction); err != nil {
-			gologger.Error().Msgf("Could not unmarshal interaction data interaction: %v\n", err)
+			log.Errorf("Could not unmarshal interaction data interaction: %v\n", err)
 			continue
 		}
 		callback(interaction)
@@ -530,7 +533,7 @@ func (c *Client) getInteractions(callback InteractionCallback) error {
 	for _, plaintext := range response.Extra {
 		interaction := &communication.Interaction{}
 		if err := jsoniter.UnmarshalFromString(plaintext, interaction); err != nil {
-			gologger.Error().Msgf("Could not unmarshal interaction data interaction: %v\n", err)
+			log.Errorf("Could not unmarshal interaction data interaction: %v\n", err)
 			continue
 		}
 		callback(interaction)
@@ -540,7 +543,7 @@ func (c *Client) getInteractions(callback InteractionCallback) error {
 	for _, data := range response.TLDData {
 		interaction := &communication.Interaction{}
 		if err := jsoniter.UnmarshalFromString(data, interaction); err != nil {
-			gologger.Error().Msgf("Could not unmarshal interaction data interaction: %v\n", err)
+			log.Errorf("Could not unmarshal interaction data interaction: %v\n", err)
 			continue
 		}
 		callback(interaction)
@@ -550,7 +553,7 @@ func (c *Client) getInteractions(callback InteractionCallback) error {
 }
 
 // TryGetAsnInfo attempts to enrich interaction with asn data
-func (c *Client) TryGetAsnInfo(interaction *server.Interaction) error {
+func (c *Client) TryGetAsnInfo(interaction *communication.Interaction) error {
 	var remoteIp string
 	if iputil.IsIP(interaction.RemoteAddress) {
 		remoteIp = interaction.RemoteAddress
@@ -842,7 +845,7 @@ func (c *Client) parseURLsWithData(serverURL string, action func(string) ([]byte
 		if err != nil {
 			if !c.disableHTTPFallback && parsed.Scheme == "https" {
 				parsed.Scheme = "http"
-				gologger.Verbose().Msgf("Could not get description from %s: %s, retrying with http\n", parsed.String(), err)
+				log.Debugf("Could not get description from %s: %s, retrying with http\n", parsed.String(), err)
 				goto makeReq
 			}
 			return nil, err
@@ -852,14 +855,14 @@ func (c *Client) parseURLsWithData(serverURL string, action func(string) ([]byte
 	}
 	descriptions, err := queryFunc(gotValue)
 	if err != nil {
-		gologger.Verbose().Msgf("Could not get description from %s: %s, retrying with remaining\n", gotValue, err)
+		log.Debugf("Could not get description from %s: %s, retrying with remaining\n", gotValue, err)
 		values = removeIndex(values, firstIdx)
 		mathrand.Shuffle(len(values), func(i, j int) { values[i], values[j] = values[j], values[i] })
 
 		for _, value := range values {
 			descriptions, err = queryFunc(value)
 			if err != nil {
-				gologger.Verbose().Msgf("Could not get description from %s: %s, retrying with remaining\n", gotValue, err)
+				log.Debugf("Could not get description from %s: %s, retrying with remaining\n", gotValue, err)
 				continue
 			}
 			break
