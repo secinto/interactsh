@@ -1,0 +1,290 @@
+{{define "SessionList"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <style>
+        table, th, td {
+            border: 1px solid white;
+            border-collapse: collapse;
+        }
+        th, td {
+            background-color: #96D4D4;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/seedrandom/3.0.5/seedrandom.min.js"></script>
+
+    <script>
+        let vals = [
+            {{range $i, $e := .Sessions}}
+        {{if $i}}, {{end}}{id: {{.ID}}, reg: {{.RegisterDate}}, dereg: {{.DeregisterDate}}, desc: {{.Description}}}
+        {{end}}
+        ]
+
+        let header_string = ["ID", "Registered At", "Deregistered At", "Description", "Suggested Link", ""]
+        function createHeader() {
+            const tr = document.createElement("tr");
+            header_string.forEach((str) => {
+                const th = document.createElement("th");
+                th.appendChild(document.createTextNode(str));
+                tr.appendChild(th);
+            })
+            return tr
+        }
+
+        const NONCE_LENGTH = 13;
+        const NONCE_CHARS = '0123456789abcdefghijklmnopqrstuvwxyz';
+        function createNonce() {
+            let result = '';
+            for (let i = 0; i < NONCE_LENGTH; ++i)
+                result += NONCE_CHARS[Math.floor(Math.random() * NONCE_CHARS.length)];
+            return result;
+        }
+
+        function createConstantNonce(seed) {
+            const rng = new Math.seedrandom(seed);
+
+            let result = '';
+            for (let i = 0; i < NONCE_LENGTH; ++i)
+                result += NONCE_CHARS[Math.floor(rng() * NONCE_CHARS.length)];
+            return result;
+        }
+
+        function createRow(session) {
+            const tr = document.createElement("tr");
+            let td = document.createElement("td");
+            td.appendChild(document.createTextNode(session.id));
+            tr.appendChild(td);
+
+            td = document.createElement("td");
+            td.appendChild(document.createTextNode(session.reg));
+            tr.appendChild(td);
+
+            td = document.createElement("td");
+            td.appendChild(document.createTextNode(session.dereg));
+            tr.appendChild(td);
+
+            td = document.createElement("td");
+            td.appendChild(document.createTextNode(session.desc));
+            tr.appendChild(td);
+
+            td = document.createElement("td");
+            let nonce
+            if(document.getElementById("randomseed").checked){
+                nonce = createNonce()
+            } else {
+                nonce = createConstantNonce(session.id)
+            }
+            td.appendChild(document.createTextNode(session.id + nonce + '.' + window.location.host));
+            tr.appendChild(td);
+
+            td = document.createElement("td");
+            let btn = document.createElement("input");
+            btn.setAttribute("type", "button");
+            btn.setAttribute("value", "Change Description");
+            btn.setAttribute("onclick", `updateDesc('${session.id}', '${session.desc}')`);
+            td.appendChild(btn);
+            tr.appendChild(td);
+
+            return tr;
+        }
+
+        function updateDesc(id, desc) {
+            let newDesc = prompt("Please enter a new Description:", desc);
+            if (newDesc === null || newDesc === "" || newDesc === desc)
+                return;
+            let xmlHttp = new XMLHttpRequest();
+            xmlHttp.onreadystatechange = function() {
+                if (xmlHttp.readyState === 4 && xmlHttp.status === 200)
+                    checkResponse(xmlHttp.responseText, id, newDesc);
+            }
+            xmlHttp.open("GET", `setDescription?id=${encodeURI(id)}&desc=${encodeURI(newDesc)}`, true); // true for asynchronous
+            xmlHttp.setRequestHeader('Authorization',"{{.Auth}}");
+            xmlHttp.send(null);
+        }
+
+        function checkResponse(resp, id, desc) {
+            if (!resp.includes("setDescription successful")) {
+                alert("Description Update was not successful!")
+            } else {
+                vals.forEach((v, i) => {
+                    if(v.id === id){
+                        vals[i].desc = desc
+                    }
+
+                })
+                fillTable()
+            }
+        }
+
+        const months = {
+            "Jan":0,
+            "Feb":1,
+            "Mar":2,
+            "Apr":3,
+            "May":4,
+            "Jun":5,
+            "Jul":6,
+            "Aug":7,
+            "Sep":8,
+            "Oct":9,
+            "Nov":10,
+            "Dec":11
+        }
+        function parseDate(date) {
+            if(date === "-")
+                return new Date("2100-01-01")
+            let arr = date.split(" ")
+            let dat = new Date()
+            dat.setFullYear(arr[2], months[arr[1].slice(0, -1)], arr[0])
+            dat.setHours(0, 0, 0)
+
+            return new Date(dat)
+        }
+
+        let displayMode = "all";
+        let filterText = "";
+        let startDate = new Date("1970-01-01")
+        let endDate = new Date("2100-01-01")
+        function changeDisplay(disp) {
+            //No need to fill the table if the mode hasn't changed.
+            if(displayMode === disp)
+                return
+            displayMode = disp
+            fillTable()
+        }
+        function filterDesc() {
+            let newFilter = document.getElementById("descFilter").value
+            if(filterText === newFilter)
+                return
+            filterText = newFilter
+            fillTable()
+        }
+        function filterDate() {
+            let newStartDate = new Date(document.getElementById("startDate").value)
+            let newEndDate = new Date(document.getElementById("endDate").value)
+            if(startDate === newStartDate && endDate === newEndDate)
+                return
+            startDate = newStartDate
+            endDate = newEndDate
+            fillTable()
+        }
+        function resetDate() {
+            let newStartDate = new Date("1970-01-01")
+            let newEndDate = new Date("2100-01-01")
+            if(startDate === newStartDate && endDate === newEndDate)
+                return
+            startDate = newStartDate
+            endDate = newEndDate
+            fillTable()
+        }
+        function fillTable() {
+            const table = document.getElementById("sessionTable");
+            //Ensure the table is empty
+            while (table.lastElementChild) {
+                table.removeChild(table.lastElementChild);
+            }
+            table.appendChild(createHeader())
+            vals.forEach((val) => {
+                if(displayMode === "finished" && val.dereg === "-")
+                    return
+                else if(displayMode === "ongoing" && val.dereg !== "-")
+                    return
+
+                if(filterText !== "" && !val.desc.includes(filterText))
+                    return
+
+                let regDate = parseDate(val.reg)
+                let deregDate = parseDate(val.dereg)
+                if(!(regDate <= endDate && deregDate >= startDate))
+                    return
+
+                table.appendChild(createRow(val))
+            })
+        }
+        function toggleRandomLink(){
+            let random = document.getElementById("randomseed").checked
+
+            let table = document.getElementById('sessionTable');
+            for (let i = 1; i < table.rows.length; i++) {
+                let nonce
+                let sessionID = table.rows[i].cells[0].innerText
+                if(random){
+                    nonce = createNonce()
+                } else {
+                    nonce = createConstantNonce(sessionID)
+                }
+
+                table.rows[i].cells[4].innerText = sessionID + nonce + '.' + window.location.host;
+            }
+        }
+
+        function createSession(){
+            let desc = prompt("A new session will be created.\nEnter a description or leave empty:","");
+
+            let xmlHttp = new XMLHttpRequest();
+            xmlHttp.onreadystatechange = function() {
+                if (xmlHttp.readyState === 4 && xmlHttp.status === 200) {
+                    let resp = JSON.parse(xmlHttp.responseText)
+
+                    let date = new Date()
+                    let month = date.toLocaleString('en-us', { month: 'long' });
+                    month = month.slice(0, 3)
+                    let hours = date.getHours()
+                    if(hours < 10){
+                        hours = '0'+hours
+                    }
+                    let minutes = date.getMinutes()
+                    if(minutes < 10){
+                        minutes = '0'+minutes
+                    }
+                    let seconds = date.getSeconds()
+                    if(seconds < 10){
+                        seconds = '0'+seconds
+                    }
+                    let reg = `${date.getDate()} ${month}, ${date.getFullYear()} ${hours}:${minutes}:${seconds}`
+
+                    vals.push({id: resp["id"], reg: reg, dereg: "-", desc: desc})
+
+                    fillTable()
+                }
+            }
+            xmlHttp.open("POST", `register`, true); // true for asynchronous
+            xmlHttp.setRequestHeader('Content-type', 'application/json');
+            xmlHttp.setRequestHeader('Authorization',"{{.Auth}}");
+            xmlHttp.send(JSON.stringify({
+                //Empty because no constant querying is going on
+                "public-key": "",
+                "secret-key": "",
+                //Empty because the server should generate it for us, as we have no access to GO code here
+                "correlation-id": "",
+                "description": desc
+            }));
+        }
+
+
+    </script>
+    <meta charset="UTF-8">
+    <title>List of Sessions</title>
+</head>
+<body onload="fillTable()">
+<h2>List of Sessions</h2>
+<label><input type="checkbox" id="randomseed" name="Display" value="all" onclick="toggleRandomLink()"> Randomize Suggested Link</label><br>
+<label><input type="radio" id="all" name="Display" value="all" onclick="changeDisplay('all')" checked> Display all Sessions</label>
+<label><input type="radio" id="fin" name="Display" value="finished" onclick="changeDisplay('finished')"> Display only Finished Sessions</label>
+<label><input type="radio" id="ong" name="Display" value="ongoing" onclick="changeDisplay('ongoing')"> Display only Ongoing Sessions</label><br>
+
+<label>Description: <input type="text" id="descFilter" /></label><input type="button" value="Filter by Description" onclick="filterDesc()"/><br>
+
+<label>Start Date: <input type="date" id="startDate" value="1970-01-01"></label>
+<label>End Date: <input type="date" id="endDate" value="2100-01-01"></label> [Both Inclusive]
+<input type="button" value="Filter by Date" onclick="filterDate()"/>
+<input type="button" value="Reset Date Filter" onclick="resetDate()"/>
+<table id="sessionTable">
+
+</table>
+
+<input type="button" value="Create new Session" onclick="createSession()"/>
+
+</body>
+</html>
+{{end}}
