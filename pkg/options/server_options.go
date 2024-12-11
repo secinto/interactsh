@@ -2,7 +2,7 @@ package options
 
 import (
 	"github.com/projectdiscovery/goflags"
-	"github.com/projectdiscovery/interactsh/pkg/server"
+	"github.com/secinto/interactsh/pkg/server"
 )
 
 type CLIServerOptions struct {

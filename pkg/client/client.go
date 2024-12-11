@@ -11,8 +11,12 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"github.com/secinto/interactsh/pkg/communication"
 	"io"
+	"io/ioutil"
+	mathrand "math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -22,22 +26,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	"errors"
-
 	"github.com/google/uuid"
 	jsoniter "github.com/json-iterator/go"
 	asnmap "github.com/projectdiscovery/asnmap/libs"
 	"github.com/projectdiscovery/gologger"
-	"github.com/projectdiscovery/interactsh/pkg/options"
-	"github.com/projectdiscovery/interactsh/pkg/server"
-	"github.com/projectdiscovery/interactsh/pkg/settings"
-	"github.com/projectdiscovery/interactsh/pkg/storage"
 	"github.com/projectdiscovery/retryablehttp-go"
 	errorutil "github.com/projectdiscovery/utils/errors"
 	iputil "github.com/projectdiscovery/utils/ip"
 	sliceutil "github.com/projectdiscovery/utils/slice"
 	stringsutil "github.com/projectdiscovery/utils/strings"
 	"github.com/rs/xid"
+	"github.com/secinto/interactsh/pkg/options"
+	"github.com/secinto/interactsh/pkg/server"
+	"github.com/secinto/interactsh/pkg/settings"
+	"github.com/secinto/interactsh/pkg/storage"
 	zbase32 "gopkg.in/corvus-ch/zbase32.v1"
 	"gopkg.in/yaml.v3"
 )
@@ -88,6 +90,7 @@ type Options struct {
 	SessionInfo *options.SessionInfo
 	// keepAliveInterval to renew the session
 	KeepAliveInterval time.Duration
+	Description       string
 }
 
 // DefaultOptions is the default options for the interact client
@@ -95,6 +98,69 @@ var DefaultOptions = &Options{
 	ServerURL:                "oast.pro,oast.live,oast.site,oast.online,oast.fun,oast.me",
 	CorrelationIdLength:      settings.CorrelationIdLengthDefault,
 	CorrelationIdNonceLength: settings.CorrelationIdNonceLengthDefault,
+}
+
+func initClient(options *Options) (*Client, []byte, error) {
+	// if correlation id lengths and nonce are not specified fallback to default:
+	if options.CorrelationIdLength == 0 {
+		options.CorrelationIdLength = DefaultOptions.CorrelationIdLength
+	}
+	if options.CorrelationIdNonceLength == 0 {
+		options.CorrelationIdNonceLength = DefaultOptions.CorrelationIdNonceLength
+	}
+
+	var httpclient *retryablehttp.Client
+	if options.HTTPClient != nil {
+		httpclient = options.HTTPClient
+	} else {
+		opts := retryablehttp.DefaultOptionsSingle
+		opts.Timeout = 10 * time.Second
+		httpclient = retryablehttp.NewClient(opts)
+	}
+
+	var correlationID, secretKey, token string
+
+	if options.SessionInfo != nil {
+		correlationID = options.SessionInfo.CorrelationID
+		secretKey = options.SessionInfo.SecretKey
+		token = options.SessionInfo.Token
+	} else {
+		// Generate a random ksuid which will be used as server secret.
+		correlationID = xid.New().String() // "cdbu0pt7jsnk0h4ir4j0"
+		if len(correlationID) > options.CorrelationIdLength {
+			correlationID = correlationID[:options.CorrelationIdLength]
+		}
+		secretKey = uuid.New().String()
+		token = options.Token
+	}
+
+	client := &Client{
+		secretKey:                secretKey,
+		correlationID:            correlationID,
+		httpClient:               httpclient,
+		token:                    token,
+		disableHTTPFallback:      options.DisableHTTPFallback,
+		correlationIdLength:      options.CorrelationIdLength,
+		CorrelationIdNonceLength: options.CorrelationIdNonceLength,
+	}
+	if options.SessionInfo != nil {
+		privKey, err := x509.ParsePKCS1PrivateKey([]byte(options.SessionInfo.PrivateKey))
+		if err == nil {
+			client.privKey = privKey
+		}
+		if serverURL, err := url.Parse(options.SessionInfo.ServerURL); err == nil {
+			client.serverURL = serverURL
+		}
+
+		return client, nil, nil
+	} else {
+		payload, err := client.initializeRSAKeys(options.Description)
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not initialize rsa keys %w", err)
+		}
+
+		return client, payload, nil
+	}
 }
 
 // New creates a new client instance based on provided options
@@ -175,19 +241,19 @@ func New(options *Options) (*Client, error) {
 			client.serverURL = serverURL
 		}
 		// attempts to re-register - server will reject is already existing
-		registrationRequest, err := encodeRegistrationRequest(options.SessionInfo.PublicKey, options.SessionInfo.SecretKey, options.SessionInfo.CorrelationID)
+		registrationRequest, err := encodeRegistrationRequest(options.SessionInfo.PublicKey, options.SessionInfo.SecretKey, options.SessionInfo.CorrelationID, options.Description)
 		if err != nil {
 			return nil, err
 		}
 		// silently fails to re-register if the session is still alive
 		_ = client.performRegistration(options.SessionInfo.ServerURL, registrationRequest)
 	} else {
-		payload, err := client.initializeRSAKeys()
+		payload, err := client.initializeRSAKeys(options.Description)
 		if err != nil {
 			return nil, errorutil.NewWithErr(err).Msgf("could not initialize rsa keys")
 		}
 
-		if err := client.parseServerURLs(options.ServerURL, payload); err != nil {
+		if err := client.parseServerURLs(options.ServerURL, []byte(payload), client.performSetDesc); err != nil {
 			return nil, errorutil.NewWithErr(err).Msgf("could not register to servers")
 		}
 	}
@@ -210,7 +276,7 @@ func New(options *Options) (*Client, error) {
 						return
 					}
 					// attempts to re-register - server will reject is already existing
-					registrationRequest, err := encodeRegistrationRequest(pubKeyData, client.secretKey, client.correlationID)
+					registrationRequest, err := encodeRegistrationRequest(pubKeyData, client.secretKey, client.correlationID, options.Description)
 					if err != nil {
 						return
 					}
@@ -229,7 +295,7 @@ func New(options *Options) (*Client, error) {
 
 // initializeRSAKeys does the one-time initialization for RSA crypto mechanism
 // and returns the data payload for the client.
-func (c *Client) initializeRSAKeys() ([]byte, error) {
+func (c *Client) initializeRSAKeys(description string) ([]byte, error) {
 	// Generate a 2048-bit private-key
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -243,16 +309,18 @@ func (c *Client) initializeRSAKeys() ([]byte, error) {
 		return nil, err
 	}
 
-	return encodeRegistrationRequest(pubKeyData, c.secretKey, c.correlationID)
+	return encodeRegistrationRequest(pubKeyData, c.secretKey, c.correlationID, description)
 }
 
-func encodeRegistrationRequest(publicKey, secretkey, correlationID string) ([]byte, error) {
-	register := server.RegisterRequest{
+func encodeRegistrationRequest(publicKey, secretkey, correlationID string, description string) ([]byte, error) {
+	register := communication.RegisterRequest{
 		PublicKey:     publicKey,
 		SecretKey:     secretkey,
 		CorrelationID: correlationID,
 	}
-
+	if description != "" {
+		register.Description = description
+	}
 	data, err := jsoniter.Marshal(register)
 	if err != nil {
 		return nil, errorutil.NewWithErr(err).Msgf("could not marshal register request")
@@ -305,7 +373,7 @@ func decodePublicKey(data string) (*rsa.PublicKey, error) {
 //
 // If the first picked random domain doesn't work, the list of domains is iterated
 // after being shuffled.
-func (c *Client) parseServerURLs(serverURL string, payload []byte) error {
+func (c *Client) parseServerURLs(serverURL string, payload []byte, action func(string, []byte) error) error {
 	if serverURL == "" {
 		return errors.New("invalid server url provided")
 	}
@@ -320,7 +388,7 @@ func (c *Client) parseServerURLs(serverURL string, payload []byte) error {
 			return errorutil.NewWithErr(err).Msgf("could not parse server URL")
 		}
 	makeReq:
-		if err := c.performRegistration(parsed.String(), payload); err != nil {
+		if err := action(parsed.String(), payload); err != nil {
 			if !c.disableHTTPFallback && parsed.Scheme == "https" {
 				parsed.Scheme = "http"
 				gologger.Verbose().Msgf("Could not register to %s: %s, retrying with http\n", parsed.String(), err)
@@ -354,7 +422,7 @@ func (c *Client) parseServerURLs(serverURL string, payload []byte) error {
 }
 
 // InteractionCallback is a callback function for a reported interaction
-type InteractionCallback func(*server.Interaction)
+type InteractionCallback func(interaction *communication.Interaction)
 
 // StartPolling the server each duration and returns any events
 // that may have been captured by the collaborator server.
@@ -439,7 +507,7 @@ func (c *Client) getInteractions(callback InteractionCallback) error {
 		}
 		return fmt.Errorf("could not poll interactions: %s", string(data))
 	}
-	response := &server.PollResponse{}
+	response := &communication.PollResponse{}
 	if err := jsoniter.NewDecoder(resp.Body).Decode(response); err != nil {
 		gologger.Error().Msgf("Could not decode interactions: %v\n", err)
 		return err
@@ -451,7 +519,7 @@ func (c *Client) getInteractions(callback InteractionCallback) error {
 			gologger.Error().Msgf("Could not decrypt interaction: %v\n", err)
 			continue
 		}
-		interaction := &server.Interaction{}
+		interaction := &communication.Interaction{}
 		if err := jsoniter.Unmarshal(plaintext, interaction); err != nil {
 			gologger.Error().Msgf("Could not unmarshal interaction data interaction: %v\n", err)
 			continue
@@ -460,7 +528,7 @@ func (c *Client) getInteractions(callback InteractionCallback) error {
 	}
 
 	for _, plaintext := range response.Extra {
-		interaction := &server.Interaction{}
+		interaction := &communication.Interaction{}
 		if err := jsoniter.UnmarshalFromString(plaintext, interaction); err != nil {
 			gologger.Error().Msgf("Could not unmarshal interaction data interaction: %v\n", err)
 			continue
@@ -470,7 +538,7 @@ func (c *Client) getInteractions(callback InteractionCallback) error {
 
 	// handle root-tld data if any
 	for _, data := range response.TLDData {
-		interaction := &server.Interaction{}
+		interaction := &communication.Interaction{}
 		if err := jsoniter.UnmarshalFromString(data, interaction); err != nil {
 			gologger.Error().Msgf("Could not unmarshal interaction data interaction: %v\n", err)
 			continue
@@ -539,7 +607,7 @@ func (c *Client) Close() error {
 
 	close(c.quitKeepAliveChan)
 
-	register := server.DeregisterRequest{
+	register := communication.DeregisterRequest{
 		CorrelationID: c.correlationID,
 		SecretKey:     c.secretKey,
 	}
@@ -708,4 +776,364 @@ func (c *Client) SaveSessionTo(filename string) error {
 		return err
 	}
 	return os.WriteFile(filename, data, os.ModePerm)
+}
+
+func SplitChunks(str string, chunkSize int) []string {
+	chunks := make([]string, 0, (len(str)-1)/chunkSize+1)
+	length, start := 0, 0
+
+	for i := range str {
+		if length == chunkSize {
+			chunks = append(chunks, str[start:i])
+			length = 0
+			start = i
+		}
+		length++
+	}
+	chunks = append(chunks, str[start:])
+	return chunks
+}
+
+// DescriptionQuery statelessly gets list of descriptions from server, does not require prior call to New
+func DescriptionQuery(options *Options, id string) ([]*communication.DescriptionEntry, error) {
+	client, _, err := initClient(options)
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to servers %w", err)
+	}
+	data, err := client.parseURLsWithData(options.ServerURL, client.performDescQuery(id))
+	if err != nil {
+		return nil, fmt.Errorf("could not get descriptions from servers %w", err)
+	}
+
+	descriptions := make([]*communication.DescriptionEntry, 0)
+	if jsonErr := jsoniter.Unmarshal(data, &descriptions); jsonErr != nil {
+		return nil, fmt.Errorf("could not unmarshal descriptions %w", jsonErr)
+	}
+	return descriptions, nil
+}
+
+// parseURLsWithData parses server url string. Multiple URLs are supported
+// comma separated and a random one will be used on runtime.
+//
+// If the https scheme is not working, http is tried. url can be comma separated
+// domains or full urls as well.
+//
+// If the first picked random domain doesn't work, the list of domains is iterated
+// after being shuffled.
+func (c *Client) parseURLsWithData(serverURL string, action func(string) ([]byte, error)) ([]byte, error) {
+	if serverURL == "" {
+		return nil, errors.New("invalid server url provided")
+	}
+
+	values := strings.Split(serverURL, ",")
+	firstIdx := mathrand.Intn(len(values))
+	gotValue := values[firstIdx]
+
+	queryFunc := func(got string) ([]byte, error) {
+		if !stringsutil.HasPrefixAny(got, "http://", "https://") {
+			got = fmt.Sprintf("https://%s", got)
+		}
+		parsed, err := url.Parse(got)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse server URL %w", err)
+		}
+	makeReq:
+		data, err := action(parsed.String())
+		if err != nil {
+			if !c.disableHTTPFallback && parsed.Scheme == "https" {
+				parsed.Scheme = "http"
+				gologger.Verbose().Msgf("Could not get description from %s: %s, retrying with http\n", parsed.String(), err)
+				goto makeReq
+			}
+			return nil, err
+		}
+		c.serverURL = parsed
+		return data, nil
+	}
+	descriptions, err := queryFunc(gotValue)
+	if err != nil {
+		gologger.Verbose().Msgf("Could not get description from %s: %s, retrying with remaining\n", gotValue, err)
+		values = removeIndex(values, firstIdx)
+		mathrand.Shuffle(len(values), func(i, j int) { values[i], values[j] = values[j], values[i] })
+
+		for _, value := range values {
+			descriptions, err = queryFunc(value)
+			if err != nil {
+				gologger.Verbose().Msgf("Could not get description from %s: %s, retrying with remaining\n", gotValue, err)
+				continue
+			}
+			break
+		}
+	}
+	if c.serverURL != nil {
+		return descriptions, nil
+	}
+	return nil, err // return errors if any.
+}
+
+func removeIndex(s []string, index int) []string {
+	return append(s[:index], s[index+1:]...)
+}
+
+// performDescQuery queries the descriptions from the given server url
+func (c *Client) performDescQuery(id string) func(string) ([]byte, error) {
+	return func(serverURL string) ([]byte, error) {
+		ctx := context.WithValue(context.Background(), retryablehttp.RETRY_MAX, 0)
+
+		var URL string
+		if string(id) != "" {
+			URL = fmt.Sprintf("%s/description?id=%s", serverURL, id)
+		} else {
+			URL = fmt.Sprintf("%s/description", serverURL)
+		}
+		req, err := retryablehttp.NewRequestWithContext(ctx, "GET", URL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("could not create new request %w", err)
+		}
+
+		if c.token != "" {
+			req.Header.Add("Authorization", c.token)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		defer func() {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+				_, _ = io.Copy(ioutil.Discard, resp.Body)
+			}
+		}()
+		if err != nil {
+			return nil, fmt.Errorf("could not make description request %w", err)
+		}
+		if resp.StatusCode == 401 {
+			return nil, errors.New("invalid token provided for interactsh server")
+		}
+		if resp.StatusCode != 200 {
+			data, _ := ioutil.ReadAll(resp.Body)
+			return nil, fmt.Errorf("could not get descriptions from server: %s", string(data))
+		}
+		response, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("could not get descriptions from server %w", err)
+		}
+
+		return response, nil
+	}
+}
+
+// SetDesc sets description for provided id
+func SetDesc(options *Options, payload string) error {
+	client, _, err := initClient(options)
+	if err != nil {
+		return fmt.Errorf("could not initialize client %w", err)
+	}
+
+	parts := strings.Split(payload, ":")
+	if len(parts) != 2 {
+		return errors.New("invalid payload provided to setDescription!")
+	}
+	id := parts[0]
+	desc := parts[1]
+	if len(id) > options.CorrelationIdLength {
+		id = id[:options.CorrelationIdLength]
+	}
+	payload = id + ":" + desc
+
+	if err := client.parseServerURLs(options.ServerURL, []byte(payload), client.performSetDesc); err != nil {
+		return fmt.Errorf("could not set description %w", err)
+	}
+
+	return nil
+}
+
+// performSetDesc Sets the description of a given id
+func (c *Client) performSetDesc(serverURL string, payload []byte) error {
+	ctx := context.WithValue(context.Background(), retryablehttp.RETRY_MAX, 0)
+
+	parts := strings.Split(string(payload), ":")
+	if len(parts) != 2 {
+		return errors.New("invalid payload provided to setDescription!")
+	}
+	id := parts[0]
+	desc := parts[1]
+
+	URL := fmt.Sprintf("%s/setDescription?id=%s&desc=%s", serverURL, url.QueryEscape(id), url.QueryEscape(desc))
+	req, err := retryablehttp.NewRequestWithContext(ctx, "GET", URL, nil)
+	if err != nil {
+		return fmt.Errorf("could not create new request %w", err)
+	}
+
+	if c.token != "" {
+		req.Header.Add("Authorization", c.token)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+			_, _ = io.Copy(ioutil.Discard, resp.Body)
+		}
+	}()
+	if err != nil {
+		return fmt.Errorf("could not make setDescription request %w", err)
+	}
+	if resp.StatusCode == 401 {
+		return errors.New("invalid token provided for interactsh server")
+	}
+	if resp.StatusCode != 200 {
+		data, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("could not set description: %s", string(data))
+	}
+	response := make(map[string]interface{})
+	if jsonErr := jsoniter.NewDecoder(resp.Body).Decode(&response); jsonErr != nil {
+		return fmt.Errorf("could not set description! %w", jsonErr)
+	}
+	message, ok := response["message"]
+	if !ok {
+		return errors.New("could not get setDescription response")
+	}
+	if message.(string) != "setDescription successful" {
+		return fmt.Errorf("could not get setDescription response: %s", message.(string))
+	}
+	return nil
+}
+
+// SessionQuery statelessly gets list of descriptions from server, does not require prior call to New
+func SessionQuery(options *Options, from, to, desc string) ([]*communication.SessionEntry, error) {
+	client, _, err := initClient(options)
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to servers %w", err)
+	}
+	data, err := client.parseURLsWithData(options.ServerURL, client.performSessionQuery(from, to, desc))
+	if err != nil {
+		return nil, fmt.Errorf("could not get sessions from servers %w", err)
+	}
+
+	sessions := make([]*communication.SessionEntry, 0)
+	if jsonErr := jsoniter.Unmarshal(data, &sessions); jsonErr != nil {
+		return nil, fmt.Errorf("could not unmarshal sessions %w", jsonErr)
+	}
+	return sessions, nil
+}
+
+func (c *Client) performSessionQuery(from string, to string, desc string) func(string) ([]byte, error) {
+	return func(serverUrl string) ([]byte, error) {
+		ctx := context.WithValue(context.Background(), retryablehttp.RETRY_MAX, 0)
+
+		builder := &strings.Builder{}
+		builder.WriteString(serverUrl)
+		builder.WriteString("/sessions?")
+
+		if from != "" {
+			builder.WriteString("from=")
+			builder.WriteString(from)
+			builder.WriteString("&")
+		}
+		if to != "" {
+			builder.WriteString("to=")
+			builder.WriteString(to)
+			builder.WriteString("&")
+		}
+		if desc != "" {
+			builder.WriteString("desc=")
+			builder.WriteString(desc)
+		}
+		req, err := retryablehttp.NewRequestWithContext(ctx, "GET", builder.String(), nil)
+		if err != nil {
+			return nil, fmt.Errorf("could not create new request %w", err)
+		}
+
+		if c.token != "" {
+			req.Header.Add("Authorization", c.token)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		defer func() {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+				_, _ = io.Copy(ioutil.Discard, resp.Body)
+			}
+		}()
+		if err != nil {
+			return nil, fmt.Errorf("could not make description request %w", err)
+		}
+		if resp.StatusCode == 401 {
+			return nil, errors.New("invalid token provided for interactsh server")
+		}
+		if resp.StatusCode != 200 {
+			data, _ := ioutil.ReadAll(resp.Body)
+			return nil, fmt.Errorf("could not get sessions from server: %s", string(data))
+		}
+		response, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("could not get sessions from server %w", err)
+		}
+
+		return response, nil
+	}
+}
+
+// InteractionQuery statelessly gets list of interactions from server, does not require prior call to New
+func InteractionQuery(options *Options, id string) (*communication.PollResponse, error) {
+	client, _, err := initClient(options)
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to servers %w", err)
+	}
+	data, err := client.parseURLsWithData(options.ServerURL, client.performInteractionQuery(id))
+	if err != nil {
+		return nil, fmt.Errorf("could not get interactions from servers %w", err)
+	}
+
+	interactions := &communication.PollResponse{}
+	if jsonErr := jsoniter.Unmarshal(data, interactions); jsonErr != nil {
+		return nil, fmt.Errorf("could not unmarshal interactions %w", jsonErr)
+	}
+	return interactions, nil
+}
+
+func (c *Client) performInteractionQuery(id string) func(string) ([]byte, error) {
+	return func(serverUrl string) ([]byte, error) {
+		ctx := context.WithValue(context.Background(), retryablehttp.RETRY_MAX, 0)
+
+		if id == "" {
+			return nil, errors.New("no id provided for interaction query")
+		}
+		builder := &strings.Builder{}
+		builder.WriteString(serverUrl)
+		builder.WriteString("/persistent?id=")
+		builder.WriteString(id)
+
+		req, err := retryablehttp.NewRequestWithContext(ctx, "GET", builder.String(), nil)
+		if err != nil {
+			return nil, fmt.Errorf("could not create new request %w", err)
+		}
+
+		if c.token != "" {
+			req.Header.Add("Authorization", c.token)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		defer func() {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+				_, _ = io.Copy(ioutil.Discard, resp.Body)
+			}
+		}()
+		if err != nil {
+			return nil, fmt.Errorf("could not make description request %w", err)
+		}
+		if resp.StatusCode == 401 {
+			return nil, errors.New("invalid token provided for interactsh server")
+		}
+		if resp.StatusCode != 200 {
+			data, _ := ioutil.ReadAll(resp.Body)
+			return nil, fmt.Errorf("could not get interactions from server: %s", string(data))
+		}
+		response, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("could not get interactions from server %w", err)
+		}
+
+		return response, nil
+	}
 }

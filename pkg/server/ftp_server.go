@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
+	"github.com/secinto/interactsh/pkg/communication"
 	"io"
 	"os"
 	"strings"
@@ -125,7 +126,7 @@ func (h *FTPServer) recordInteraction(remoteAddress, data string) {
 	if data == "" {
 		return
 	}
-	interaction := &Interaction{
+	interaction := &communication.Interaction{
 		RemoteAddress: remoteAddress,
 		Protocol:      "ftp",
 		RawRequest:    data,

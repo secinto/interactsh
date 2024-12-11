@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/secinto/interactsh/pkg/communication"
 	"net"
 	"os"
 	"strings"
@@ -12,10 +13,9 @@ import (
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/miekg/dns"
-	"github.com/pkg/errors"
 	"github.com/projectdiscovery/gologger"
-	"github.com/projectdiscovery/interactsh/pkg/server/acme"
 	stringsutil "github.com/projectdiscovery/utils/strings"
+	"github.com/secinto/interactsh/pkg/server/acme"
 	"gopkg.in/yaml.v3"
 )
 
@@ -267,7 +267,7 @@ func (h *DNSServer) handleInteraction(domain string, w dns.ResponseWriter, r *dn
 	if h.options.RootTLD && foundDomain != "" {
 		correlationID := foundDomain
 		host, _, _ := net.SplitHostPort(w.RemoteAddr().String())
-		interaction := &Interaction{
+		interaction := &communication.Interaction{
 			Protocol:      "dns",
 			UniqueID:      domain,
 			FullId:        domain,
@@ -325,7 +325,7 @@ func (h *DNSServer) handleInteraction(domain string, w dns.ResponseWriter, r *dn
 	if uniqueID != "" {
 		correlationID := uniqueID[:h.options.CorrelationIdLength]
 		host, _, _ := net.SplitHostPort(w.RemoteAddr().String())
-		interaction := &Interaction{
+		interaction := &communication.Interaction{
 			Protocol:      "dns",
 			UniqueID:      uniqueID,
 			FullId:        fullID,
@@ -376,13 +376,13 @@ func newCustomDNSRecordsServer(input string) *customDNSRecords {
 func (c *customDNSRecords) readRecordsFromFile(input string) error {
 	file, err := os.Open(input)
 	if err != nil {
-		return errors.Wrap(err, "could not open file")
+		return fmt.Errorf("could not open file %w", err)
 	}
 	defer file.Close()
 
 	var data map[string]string
 	if err := yaml.NewDecoder(file).Decode(&data); err != nil {
-		return errors.Wrap(err, "could not decode file")
+		return fmt.Errorf("could not decode file %w", err)
 	}
 	for k, v := range data {
 		c.records[strings.ToLower(k)] = v

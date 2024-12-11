@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
+	"github.com/secinto/interactsh/pkg/communication"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -79,7 +80,7 @@ func (ldapServer *LDAPServer) handleBind(w ldap.ResponseWriter, m *ldap.Message)
 	w.Write(res)
 
 	if ldapServer.WithLogger {
-		ldapServer.logInteraction(Interaction{
+		ldapServer.logInteraction(communication.Interaction{
 			RemoteAddress: m.Client.Addr().String(),
 			RawRequest:    message.String(),
 		})
@@ -137,7 +138,7 @@ func (ldapServer *LDAPServer) handleSearch(w ldap.ResponseWriter, m *ldap.Messag
 func (ldapServer *LDAPServer) handleInteraction(uniqueID, fullID, reqString, host string) {
 	if uniqueID != "" {
 		correlationID := uniqueID[:ldapServer.options.CorrelationIdLength]
-		interaction := &Interaction{
+		interaction := &communication.Interaction{
 			Protocol:      "ldap",
 			UniqueID:      uniqueID,
 			FullId:        fullID,
@@ -159,7 +160,7 @@ func (ldapServer *LDAPServer) handleInteraction(uniqueID, fullID, reqString, hos
 
 	// still not the full interaction without correlation if requested
 	if ldapServer.WithLogger {
-		ldapServer.logInteraction(Interaction{
+		ldapServer.logInteraction(communication.Interaction{
 			RemoteAddress: host,
 			RawRequest:    reqString,
 		})
@@ -179,7 +180,7 @@ func (ldapServer *LDAPServer) handleAbandon(w ldap.ResponseWriter, m *ldap.Messa
 	}
 
 	if ldapServer.WithLogger {
-		ldapServer.logInteraction(Interaction{
+		ldapServer.logInteraction(communication.Interaction{
 			RemoteAddress: m.Client.Addr().String(),
 			RawRequest:    message.String(),
 		})
@@ -205,7 +206,7 @@ func (ldapServer *LDAPServer) handleNotFound(w ldap.ResponseWriter, m *ldap.Mess
 	}
 
 	if ldapServer.WithLogger {
-		ldapServer.logInteraction(Interaction{
+		ldapServer.logInteraction(communication.Interaction{
 			RemoteAddress: m.Client.Addr().String(),
 			RawRequest:    message.String(),
 		})
@@ -226,7 +227,7 @@ func (ldapServer *LDAPServer) handleCompare(w ldap.ResponseWriter, m *ldap.Messa
 	w.Write(res)
 
 	if ldapServer.WithLogger {
-		ldapServer.logInteraction(Interaction{
+		ldapServer.logInteraction(communication.Interaction{
 			RemoteAddress: m.Client.Addr().String(),
 			RawRequest:    message.String(),
 		})
@@ -251,7 +252,7 @@ func (ldapServer *LDAPServer) handleAdd(w ldap.ResponseWriter, m *ldap.Message) 
 	w.Write(res)
 
 	if ldapServer.WithLogger {
-		ldapServer.logInteraction(Interaction{
+		ldapServer.logInteraction(communication.Interaction{
 			RemoteAddress: m.Client.Addr().String(),
 			RawRequest:    message.String(),
 		})
@@ -271,7 +272,7 @@ func (ldapServer *LDAPServer) handleDelete(w ldap.ResponseWriter, m *ldap.Messag
 	w.Write(res)
 
 	if ldapServer.WithLogger {
-		ldapServer.logInteraction(Interaction{
+		ldapServer.logInteraction(communication.Interaction{
 			RemoteAddress: m.Client.Addr().String(),
 			RawRequest:    message.String(),
 		})
@@ -310,7 +311,7 @@ func (ldapServer *LDAPServer) handleModify(w ldap.ResponseWriter, m *ldap.Messag
 	w.Write(res)
 
 	if ldapServer.WithLogger {
-		ldapServer.logInteraction(Interaction{
+		ldapServer.logInteraction(communication.Interaction{
 			RemoteAddress: m.Client.Addr().String(),
 			RawRequest:    message.String(),
 		})
@@ -341,7 +342,7 @@ func (ldapServer *LDAPServer) handleStartTLS(w ldap.ResponseWriter, m *ldap.Mess
 	message.WriteString("Result=StartTLS OK\n")
 
 	if ldapServer.WithLogger {
-		ldapServer.logInteraction(Interaction{
+		ldapServer.logInteraction(communication.Interaction{
 			RemoteAddress: m.Client.Addr().String(),
 			RawRequest:    message.String(),
 		})
@@ -359,7 +360,7 @@ func (ldapServer *LDAPServer) handleWhoAmI(w ldap.ResponseWriter, m *ldap.Messag
 	w.Write(res)
 
 	if ldapServer.WithLogger {
-		ldapServer.logInteraction(Interaction{
+		ldapServer.logInteraction(communication.Interaction{
 			RemoteAddress: m.Client.Addr().String(),
 			RawRequest:    message.String(),
 		})
@@ -381,7 +382,7 @@ func (ldapServer *LDAPServer) handleExtended(w ldap.ResponseWriter, m *ldap.Mess
 	w.Write(res)
 
 	if ldapServer.WithLogger {
-		ldapServer.logInteraction(Interaction{
+		ldapServer.logInteraction(communication.Interaction{
 			RemoteAddress: m.Client.Addr().String(),
 			RawRequest:    message.String(),
 		})
@@ -404,10 +405,10 @@ func (ldapServer *LDAPServer) handleLog(host string, f string, v ...interface{})
 	}
 
 	// Correlation id doesn't apply here, we skip encryption
-	ldapServer.logInteraction(Interaction{RawRequest: data.String(), RemoteAddress: host})
+	ldapServer.logInteraction(communication.Interaction{RawRequest: data.String(), RemoteAddress: host})
 }
 
-func (ldapServer *LDAPServer) logInteraction(interaction Interaction) {
+func (ldapServer *LDAPServer) logInteraction(interaction communication.Interaction) {
 	// Correlation id doesn't apply here, we skip encryption
 	interaction.Protocol = "ldap"
 	interaction.Timestamp = time.Now()

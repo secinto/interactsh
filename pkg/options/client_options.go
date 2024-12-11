@@ -31,4 +31,10 @@ type CLIClientOptions struct {
 	DisableUpdateCheck       bool
 	KeepAliveInterval        time.Duration
 	PdcpAuth                 string
+	Description              string
+	SetDescription           string
+	QueryDescription         bool
+	QuerySessions            bool
+	QueryInteractions        string
+	SearchString             string
 }

@@ -1,4 +1,4 @@
-module github.com/projectdiscovery/interactsh
+module github.com/secinto/interactsh
 
 go 1.21
 

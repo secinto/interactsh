@@ -28,3 +28,11 @@ type CorrelationData struct {
 	// decrypted AES key for signing
 	AESKey []byte `json:"-"`
 }
+
+type PersistentEntry struct {
+	data           *CorrelationData
+	registeredAt   time.Time
+	deregisteredAt time.Time
+	//Description of the connection
+	Description string
+}

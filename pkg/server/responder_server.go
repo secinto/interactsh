@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"github.com/secinto/interactsh/pkg/communication"
 	"net"
 	"os"
 	"os/exec"
@@ -11,9 +12,9 @@ import (
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/projectdiscovery/gologger"
-	"github.com/projectdiscovery/interactsh/pkg/filewatcher"
 	fileutil "github.com/projectdiscovery/utils/file"
 	stringsutil "github.com/projectdiscovery/utils/strings"
+	"github.com/secinto/interactsh/pkg/filewatcher"
 )
 
 var responderMonitorList map[string]string = map[string]string{
@@ -90,7 +91,7 @@ func (h *ResponderServer) ListenAndServe(responderAlive chan bool) error {
 					}
 
 					// Correlation id doesn't apply here, we skip encryption
-					interaction := &Interaction{
+					interaction := &communication.Interaction{
 						Protocol:   "responder",
 						RawRequest: responderData,
 						Timestamp:  time.Now(),

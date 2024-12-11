@@ -15,16 +15,17 @@ import (
 	"github.com/projectdiscovery/goflags"
 	"github.com/projectdiscovery/gologger"
 	"github.com/projectdiscovery/gologger/levels"
-	"github.com/projectdiscovery/interactsh/internal/runner"
-	"github.com/projectdiscovery/interactsh/pkg/client"
-	"github.com/projectdiscovery/interactsh/pkg/options"
-	"github.com/projectdiscovery/interactsh/pkg/server"
-	"github.com/projectdiscovery/interactsh/pkg/settings"
 	"github.com/projectdiscovery/utils/auth/pdcp"
 	"github.com/projectdiscovery/utils/env"
 	fileutil "github.com/projectdiscovery/utils/file"
 	folderutil "github.com/projectdiscovery/utils/folder"
 	updateutils "github.com/projectdiscovery/utils/update"
+	"github.com/secinto/interactsh/internal/runner"
+	"github.com/secinto/interactsh/pkg/client"
+	"github.com/secinto/interactsh/pkg/communication"
+	"github.com/secinto/interactsh/pkg/options"
+	"github.com/secinto/interactsh/pkg/server"
+	"github.com/secinto/interactsh/pkg/settings"
 )
 
 var (
@@ -65,6 +66,15 @@ func main() {
 		flagSet.BoolVar(&cliOptions.HTTPOnly, "http-only", false, "display only http interaction in CLI output"),
 		flagSet.BoolVar(&cliOptions.SmtpOnly, "smtp-only", false, "display only smtp interactions in CLI output"),
 		flagSet.BoolVar(&cliOptions.Asn, "asn", false, " include asn information of remote ip in json output"),
+	)
+
+	flagSet.CreateGroup("custom", "Custom",
+		flagSet.StringVarP(&cliOptions.Description, "desc", "d", "", "description for the created subdomains"),
+		flagSet.StringVarP(&cliOptions.SetDescription, "set-desc", "sd", "", "sets description for given ID in the format ID:Description"),
+		flagSet.BoolVarP(&cliOptions.QueryDescription, "get-desc", "gd", false, "gets descriptions, set -ss [ID] to search for given ID"),
+		flagSet.BoolVarP(&cliOptions.QuerySessions, "get-sessions", "gs", false, "gets a list of sessions, set -ss [STRING] to filter by description"),
+		flagSet.StringVarP(&cliOptions.QueryInteractions, "get-interactions", "gi", "", "gets a list of all interactions of given session"),
+		flagSet.StringVarP(&cliOptions.SearchString, "search-string", "ss", "", "for use in conjunction with -gd, -gs"),
 	)
 
 	flagSet.CreateGroup("update", "Update",
@@ -154,14 +164,66 @@ func main() {
 		_ = fileutil.Unmarshal(fileutil.YAML, []byte(cliOptions.SessionFile), &sessionInfo)
 	}
 
-	client, err := client.New(&client.Options{
+	options := &client.Options{
 		ServerURL:                cliOptions.ServerURL,
 		Token:                    cliOptions.Token,
 		DisableHTTPFallback:      cliOptions.DisableHTTPFallback,
 		CorrelationIdLength:      cliOptions.CorrelationIdLength,
 		CorrelationIdNonceLength: cliOptions.CorrelationIdNonceLength,
 		SessionInfo:              sessionInfo,
-	})
+		Description:              cliOptions.Description,
+	}
+
+	if cliOptions.QueryDescription {
+		descriptions, err := client.DescriptionQuery(options, cliOptions.SearchString)
+		if err != nil {
+			gologger.Fatal().Msgf("Could not fetch Descriptions: %s\n", err)
+		}
+		printDescriptions(descriptions)
+
+		os.Exit(0)
+	}
+	if cliOptions.QuerySessions {
+		sessions, err := client.SessionQuery(options, "", "", cliOptions.SearchString)
+		if err != nil {
+			gologger.Fatal().Msgf("Could not fetch sessions: %s\n", err)
+		}
+
+		printSessions(sessions)
+		os.Exit(0)
+	}
+
+	if cliOptions.SetDescription != "" {
+		if len(strings.Split(cliOptions.SetDescription, ":")) != 2 {
+			gologger.Fatal().Msgf("Wrong format! Use ID:Description")
+		}
+		if err := client.SetDesc(options, cliOptions.SetDescription); err != nil {
+			gologger.Fatal().Msgf("Could not set new description: %s\n", err)
+		}
+
+		gologger.Info().Msgf("Description updated successfully!")
+		os.Exit(0)
+	}
+
+	if cliOptions.QueryInteractions != "" {
+		response, err := client.InteractionQuery(options, cliOptions.QueryInteractions)
+		if err != nil {
+			gologger.Fatal().Msgf("Could not get interactions: %s\n", err)
+		}
+
+		for _, interactionData := range response.Data {
+			interaction := &communication.Interaction{}
+
+			if err := jsoniter.Unmarshal([]byte(interactionData), interaction); err != nil {
+				gologger.Error().Msgf("Could not unmarshal interaction data interaction: %v\n", err)
+				continue
+			}
+			printFunction(interaction)
+		}
+		os.Exit(0)
+	}
+
+	client, err := client.New(options)
 	if err != nil {
 		gologger.Fatal().Msgf("Could not create client: %s\n", err)
 	}
@@ -290,6 +352,30 @@ func main() {
 			client.Close()
 		}
 		os.Exit(1)
+	}
+}
+
+const descSize = 50
+
+func printDescriptions(descriptions []*communication.DescriptionEntry) {
+	gologger.Silent().Msgf("\n%20s %10s %*s\n", "ID", "Date", descSize, "DESCRIPTION")
+	for i := range descriptions {
+		descChunks := client.SplitChunks(descriptions[i].Description, descSize)
+		gologger.Silent().Msgf("%20s %10s %*s\n", descriptions[i].CorrelationID, descriptions[i].Date, descSize, descChunks[0])
+		for i := 1; i < len(descChunks); i++ {
+			gologger.Silent().Msgf("%20s %10s %*s\n", "", "", descSize, descChunks[i])
+		}
+	}
+}
+
+func printSessions(sessions []*communication.SessionEntry) {
+	gologger.Silent().Msgf("\n%20s %20s %20s %*s\n", "ID", "Registered At", "Deregistered At", descSize, "Description")
+	for i := range sessions {
+		descChunks := client.SplitChunks(sessions[i].Description, descSize)
+		gologger.Silent().Msgf("%20s %20s %20s %*s\n", sessions[i].ID, sessions[i].RegisterDate, sessions[i].DeregisterDate, descSize, descChunks[0])
+		for i := 1; i < len(descChunks); i++ {
+			gologger.Silent().Msgf("%20s %20s %20s %*s\n", "", "", "", descSize, descChunks[i])
+		}
 	}
 }
 

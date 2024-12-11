@@ -7,9 +7,13 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
+	"github.com/projectdiscovery/gologger"
+	"github.com/secinto/interactsh/pkg/communication"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/goburrow/cache"
 	"github.com/google/uuid"
@@ -25,10 +29,11 @@ import (
 // Storage is an storage for interactsh interaction data as well
 // as correlation-id -> rsa-public-key data.
 type StorageDB struct {
-	Options *Options
-	cache   cache.Cache
-	db      *leveldb.DB
-	dbpath  string
+	Options         *Options
+	cache           cache.Cache
+	db              *leveldb.DB
+	dbpath          string
+	persistentStore map[string][]*PersistentEntry
 }
 
 // New creates a new storage instance for interactsh data.
@@ -90,21 +95,37 @@ func (s *StorageDB) GetCacheMetrics() (*CacheMetrics, error) {
 }
 
 // SetIDPublicKey sets the correlation ID and publicKey into the cache for further operations.
-func (s *StorageDB) SetIDPublicKey(correlationID, secretKey, publicKey string) error {
+func (s *StorageDB) SetIDPublicKey(correlationID, secretKey, publicKey string, description string) error {
 	// If we already have this correlation ID, return.
 	_, found := s.cache.GetIfPresent(correlationID)
 	if found {
 		return errors.New("correlation-id provided already exists")
 	}
-	publicKeyData, err := ParseB64RSAPublicKeyFromPEM(publicKey)
-	if err != nil {
-		return errors.Wrap(err, "could not read public Key")
+	pValue, pFound := s.persistentStore[correlationID]
+	//If there is an entry in the persistent store but not in the cache, it means the same id is being reused.
+	if pFound && !found && len(pValue) > 0 {
+		//If it has no unregisteredAt timing yet - for whatever reason - add one now.
+		//This should not happen, however, so we log the occurrence.
+		if pValue[len(pValue)-1].deregisteredAt.IsZero() {
+			pValue[len(pValue)-1].deregisteredAt = time.Now()
+			gologger.Warning().Msgf("Deregister Time added to %s when overwritten!", correlationID)
+		}
 	}
-	aesKey := uuid.New().String()[:32]
 
-	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKeyData, []byte(aesKey), []byte(""))
-	if err != nil {
-		return errors.New("could not encrypt event data")
+	aesKey := ""
+	var ciphertext []byte
+
+	if publicKey != "" {
+		publicKeyData, err := ParseB64RSAPublicKeyFromPEM(publicKey)
+		if err != nil {
+			return fmt.Errorf("could not read public Key %w", err)
+		}
+		aesKey := uuid.New().String()[:32]
+
+		ciphertext, err = rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKeyData, []byte(aesKey), []byte(""))
+		if err != nil {
+			return errors.New("could not encrypt event data")
+		}
 	}
 
 	data := &CorrelationData{
@@ -113,6 +134,10 @@ func (s *StorageDB) SetIDPublicKey(correlationID, secretKey, publicKey string) e
 		AESKeyEncrypted: base64.StdEncoding.EncodeToString(ciphertext),
 	}
 	s.cache.Put(correlationID, data)
+	pData := &CorrelationData{}
+	*pData = *data
+	pEntry := &PersistentEntry{data: pData, registeredAt: time.Now(), Description: description}
+	s.persistentStore[correlationID] = append(pValue, pEntry)
 	return nil
 }
 
@@ -137,7 +162,7 @@ func (s *StorageDB) AddInteraction(correlationID string, data []byte) error {
 	if s.Options.UseDisk() {
 		ct, err := AESEncrypt(value.AESKey, data)
 		if err != nil {
-			return errors.Wrap(err, "could not encrypt event data")
+			return fmt.Errorf("could not encrypt event data %w", err)
 		}
 		value.Lock()
 		existingData, _ := s.db.Get([]byte(correlationID), nil)
@@ -166,7 +191,7 @@ func (s *StorageDB) AddInteractionWithId(id string, data []byte) error {
 	if s.Options.UseDisk() {
 		ct, err := AESEncrypt(value.AESKey, data)
 		if err != nil {
-			return errors.Wrap(err, "could not encrypt event data")
+			return fmt.Errorf("could not encrypt event data %w", err)
 		}
 		value.Lock()
 		existingData, _ := s.db.Get([]byte(id), nil)
@@ -280,7 +305,7 @@ func (s *StorageDB) getInteractions(correlationData *CorrelationData, id string)
 		for i, dataItem := range data {
 			encryptedDataItem, err := AESEncrypt(correlationData.AESKey, []byte(dataItem))
 			if err != nil {
-				errs = append(errs, errors.Wrap(err, "could not encrypt event data"))
+				errs = append(errs, fmt.Errorf("could not encrypt event data %w", err))
 				data[i] = dataItem
 			} else {
 				data[i] = encryptedDataItem
@@ -300,4 +325,101 @@ func (s *StorageDB) Close() error {
 		errdbClosed,
 		os.RemoveAll(s.dbpath),
 	)
+}
+
+// GetDescription returns the description for a correlationID
+func (s *StorageDB) GetDescription(correlationID string) (string, error) {
+	item, ok := s.persistentStore[correlationID]
+	if !ok {
+		return "", errors.New("could not get correlation-id from cache when trying to fetch Description")
+	}
+	data := item[len(item)-1].Description
+	if data == "" {
+		data = "No Description provided!"
+	}
+	return data, nil
+}
+
+const YYYYMMDD = "2006-01-02"
+
+// GetAllDescriptions returns all descriptions
+func (s *StorageDB) GetAllDescriptions() []*communication.DescriptionEntry {
+	descs := make([]*communication.DescriptionEntry, 0)
+	for key, val := range s.persistentStore {
+		for i := range val {
+			if val[i].registeredAt.IsZero() {
+				continue
+			}
+			desc := val[i].Description
+			if desc == "" {
+				desc = "No Description provided!"
+			}
+			descs = append(descs, &communication.DescriptionEntry{CorrelationID: key, Date: val[i].registeredAt.Format(YYYYMMDD), Description: desc})
+		}
+	}
+	return descs
+}
+
+// SetDescription sets the description of an associated ID
+func (s *StorageDB) SetDescription(correlationID string, description string) error {
+	item, ok := s.persistentStore[correlationID]
+	if !ok || len(item) < 1 {
+		return errors.New("could not get correlation-id from cache when trying to set Description")
+	}
+	if item[len(item)-1].Description != "" {
+		gologger.Verbose().Msgf("Description set for ID that already had an associated description")
+	}
+	item[len(item)-1].Description = description
+	return nil
+}
+
+// GetPersistentInteractions returns the interactions for a correlationID.
+// It also returns AES Encrypted Key for the IDs.
+func (s *StorageDB) GetPersistentInteractions(correlationID string) ([]string, error) {
+	item, ok := s.persistentStore[correlationID]
+	if !ok || len(item) < 1 {
+		return nil, errors.New("could not get correlation-id from persistent store")
+	}
+
+	value := make([]string, 0)
+	for i := range item {
+		value = append(value, item[i].data.Data...)
+	}
+	return value, nil
+}
+
+func (s *StorageDB) GetRegisteredSessions(activeOnly bool, from, to time.Time, desc, layout string) ([]*communication.SessionEntry, error) {
+	if to.IsZero() {
+		//Basically just an arbitrary date in the far future, ensuring the cases always pass
+		to = time.Now().AddDate(100, 0, 0)
+	}
+	if from.After(to) {
+		return nil, errors.New("The 'from' date has to be earlier than the 'to' date!")
+	}
+	entries := make([]*communication.SessionEntry, 0)
+	for key, val := range s.persistentStore {
+		for i := range val {
+			registeredAt, deregisteredAt, description := val[i].registeredAt, val[i].deregisteredAt, val[i].Description
+			if registeredAt.IsZero() {
+				continue
+			}
+
+			if (!activeOnly || deregisteredAt.IsZero()) &&
+				(registeredAt.Before(to) && (deregisteredAt.After(from) || (deregisteredAt.IsZero() && time.Now().After(from)))) &&
+				(desc == "" || strings.Contains(strings.ToLower(description), strings.ToLower(desc))) {
+				entry := &communication.SessionEntry{
+					ID:             key,
+					RegisterDate:   registeredAt.Format(layout),
+					DeregisterDate: deregisteredAt.Format(layout),
+					Description:    description,
+				}
+				if deregisteredAt.IsZero() {
+					entry.DeregisterDate = "-"
+				}
+				entries = append(entries, entry)
+			}
+		}
+	}
+
+	return entries, nil
 }

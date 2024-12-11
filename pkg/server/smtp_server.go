@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
+	"github.com/secinto/interactsh/pkg/communication"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -140,7 +141,7 @@ func (h *SMTPServer) defaultHandler(remoteAddr net.Addr, from string, to []strin
 		host, _, _ := net.SplitHostPort(remoteAddr.String())
 
 		correlationID := uniqueID[:h.options.CorrelationIdLength]
-		interaction := &Interaction{
+		interaction := &communication.Interaction{
 			Protocol:      "smtp",
 			UniqueID:      uniqueID,
 			FullId:        fullID,
